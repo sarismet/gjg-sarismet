@@ -25,7 +25,7 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) []LeaderBoardRespond
 	var users []LeaderBoardRespond
 	fmt.Println("--- SCORES ---")
 	fmt.Println(scores.Val())
-	for _, member := range scores.Val() {
+	for rank, member := range scores.Val() {
 		var tempUsers LeaderBoardRespond
 
 		val, err := db.Client.Get(Ctx, member.Member.(string)).Result()
@@ -33,6 +33,18 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) []LeaderBoardRespond
 		fmt.Println(val)
 		if err == nil {
 			json.Unmarshal([]byte(val), &tempUsers)
+
+			if tempUsers.Rank != rank {
+				tempUsers.Rank = rank
+
+				var ttuser User
+				ttuser.Rank = rank
+				json.Unmarshal([]byte(val), &ttuser)
+
+				userJson, _ := json.Marshal(ttuser)
+
+				db.Client.Set(Ctx, ttuser.User_Id, userJson, 0)
+			}
 			if countryName != "" {
 				if tempUsers.Country == countryName {
 					users = append(users, tempUsers)
