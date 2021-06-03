@@ -70,10 +70,6 @@ func createUser(c echo.Context) error {
 	user.Points = 0
 	user.Rank = -1
 
-	if RedisDB == nil {
-		fmt.Println("BOSSSSSADASDASDASDS")
-	}
-
 	err = RedisDB.SaveUser(&user)
 
 	if err != nil {
@@ -179,6 +175,15 @@ func main() {
 	RedisDB.Client.Set(Ctx, "language", "Go", 0)
 	language := RedisDB.Client.Get(Ctx, "language")
 	year := RedisDB.Client.Get(Ctx, "year")
+
+	size := RedisDB.Client.Get(Ctx, "size")
+
+	if size.Val() == "" {
+		fmt.Println("VAL IS EMPTY SETTING SIZE 0")
+		RedisDB.Client.Set(Ctx, "leaderboardsize", 0, 0)
+	} else {
+		fmt.Printf("abiiii val iss %s", size.Val())
+	}
 
 	SQLDB, err = db.NewSqlDatabase()
 

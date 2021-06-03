@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/go-redis/redis"
 )
@@ -22,15 +23,26 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) []LeaderBoardRespond
 		return nil
 	}
 
-	var users []LeaderBoardRespond
-	fmt.Println("--- SCORES ---")
-	fmt.Println(scores.Val())
+	var arraysize int
+	if countryName != "" {
+		fmt.Println("Country Name is not empty")
+		countrySizeVal := db.Client.Get(Ctx, countryName).Val()
+		if countrySizeVal == "" {
+			fmt.Println("However we cannot find any size of this country")
+			db.Client.Set(Ctx, countryName, 0, 0)
+			return nil
+		}
+		arraysize, _ = strconv.Atoi(countrySizeVal)
+	}
+
+	users := make([]LeaderBoardRespond, arraysize)
+
 	for rank, member := range scores.Val() {
 		var tempUsers LeaderBoardRespond
 
 		val, err := db.Client.Get(Ctx, member.Member.(string)).Result()
-		fmt.Print("val is ")
-		fmt.Println(val)
+		//fmt.Print("val is ")
+		//fmt.Println(val)
 		if err == nil {
 			json.Unmarshal([]byte(val), &tempUsers)
 
@@ -70,10 +82,20 @@ func (db *RedisDatabase) SaveUser(user *User) error {
 	if err != nil {
 		return err
 	}
+
 	fmt.Println(rank.Val(), err)
 	user.Rank = int(rank.Val())
 	fmt.Println("Rank is ")
 	fmt.Println(user.Rank)
+
+	countrySizeVal := db.Client.Get(Ctx, user.Country).Val()
+	if countrySizeVal == "" {
+		fmt.Println("However we cannot find any size of this country")
+		db.Client.Set(Ctx, user.Country, 1, 0)
+	} else {
+		size, _ := strconv.Atoi(countrySizeVal)
+		db.Client.Set(Ctx, user.Country, size+1, 0)
+	}
 
 	userJson, err := json.Marshal(user)
 	if err != nil {

@@ -77,7 +77,34 @@ func (db *SQLDatabase) SaveUser(user User) error {
 	fmt.Println("SQLDatabase SaveUser")
 
 	insertDB := `INSERT INTO  Users (User_Id, Display_Name, Points, Rank, Country) values($1, $2, $3, $4, $5);`
-	_, err := db.SqlClient.Exec(insertDB, user.User_Id, user.Display_Name, user.Points, user.Rank, user.Country)
+	res, err := db.SqlClient.Exec(insertDB, user.User_Id, user.Display_Name, user.Points, user.Rank, user.Country)
+
+	fmt.Print("RESULT insertDB IS \n")
+	fmt.Println(res)
+
+	if err != nil {
+		return err
+	}
+
+	updateDB := `UPDATE CountryNumberSizes SET size = size + 1 WHERE code = $1;`
+	res, err = db.SqlClient.Exec(updateDB, user.Country)
+	fmt.Print("RESULT UPDATE IS \n")
+	fmt.Println(res.RowsAffected())
+
+	fmt.Println("UPDATE ERROR *********** UPDATE ERROR")
+	fmt.Println(err)
+
+	affectedrows, _ := res.RowsAffected()
+	if affectedrows == 0 {
+		fmt.Println("Country ISO CODE does not exist inserting")
+		insertCountryNumberDB := `INSERT INTO CountryNumberSizes (code, size) values($1, $2);`
+		result, err := db.SqlClient.Exec(insertCountryNumberDB, user.Country, 1)
+		fmt.Print("RESULT INSERT IS \n")
+		fmt.Println(result)
+		if err != nil {
+			return err
+		}
+	}
 
 	if err != nil {
 		fmt.Printf("There is an err in sql database save %s", err)
@@ -107,6 +134,17 @@ func (db *SQLDatabase) CreateTableNotExists() error {
         Country VARCHAR(10) NOT NULL,
         PRIMARY KEY (User_Id));`
 	_, err := db.SqlClient.Exec(createDB)
+
+	if err != nil {
+		fmt.Printf("There is an err in sql database save %s", err)
+		return err
+	}
+
+	createCountryDB := `CREATE TABLE IF NOT EXISTS CountryNumberSizes(
+        code VARCHAR(30) UNIQUE NOT NULL,
+        size INT  NOT NULL,
+        PRIMARY KEY (code));`
+	_, err = db.SqlClient.Exec(createCountryDB)
 
 	if err != nil {
 		fmt.Printf("There is an err in sql database save %s", err)
