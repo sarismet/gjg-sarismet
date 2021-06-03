@@ -58,7 +58,7 @@ func (db *SQLDatabase) GetAllUser(countryName string) []LeaderBoardRespond {
 			log.Fatal("Failed to execute query: ", err)
 		}
 		_ = rows
-		db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", countryName).Scan(rowCount)
+		db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", countryName).Scan(&rowCount)
 	}
 	defer rows.Close()
 
@@ -90,19 +90,10 @@ func (db *SQLDatabase) GetUser(user_guid string) (User, error) {
 }
 func (db *SQLDatabase) SaveUser(user *User, country string) error {
 
-	fmt.Printf("User Country is %s \n", country)
-	insertDB := `INSERT INTO  Users (User_Id, Display_Name, Points, Rank, Country) values($1, $2, $3, $4, $5);`
-	res, _ := db.SqlClient.Exec(insertDB, user.User_Id, user.Display_Name, user.Points, user.Rank, country)
-
-	affectedrows, _ := res.RowsAffected()
-	if affectedrows == 0 {
-		return errors.New("can't work with 42")
-	}
-
 	updateDB := `UPDATE CountryNumberSizes SET size = size + 1 WHERE code = $1;`
-	res, _ = db.SqlClient.Exec(updateDB, country)
+	res, _ := db.SqlClient.Exec(updateDB, country)
 	if res != nil {
-		affectedrows, _ = res.RowsAffected()
+		affectedrows, _ := res.RowsAffected()
 		if affectedrows == 0 {
 			fmt.Println("Country ISO CODE does not exist inserting")
 			insertCountryNumberDB := `INSERT INTO CountryNumberSizes (code, size) values($1, $2);`
@@ -115,10 +106,10 @@ func (db *SQLDatabase) SaveUser(user *User, country string) error {
 		}
 	}
 
-	updateGeneralDB := `UPDATE CountryNumberSizes SET size = size + 1 WHERE code = general;`
-	res2, _ := db.SqlClient.Exec(updateGeneralDB, country)
+	updateGeneralDB := `UPDATE CountryNumberSizes SET size = size + 1 WHERE code = $1;`
+	res2, _ := db.SqlClient.Exec(updateGeneralDB, "general")
 	if res2 != nil {
-		affectedrows, _ = res2.RowsAffected()
+		affectedrows, _ := res2.RowsAffected()
 		if affectedrows == 0 {
 			fmt.Println("Country ISO CODE does not exist inserting")
 			insertCountryNumberDB := `INSERT INTO CountryNumberSizes (code, size) values($1, $2);`
@@ -129,6 +120,18 @@ func (db *SQLDatabase) SaveUser(user *User, country string) error {
 				return err
 			}
 		}
+	}
+
+	fmt.Printf("User Country is %s \n", country)
+	var rank int
+	insertDB := `INSERT INTO  Users (User_Id, Display_Name, Points, Rank, Country) values($1, $2, $3, $4, $5);`
+	db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", "general").Scan(&rank)
+	fmt.Printf("BAK BURAYA RANK IS %d \n", rank)
+	res3, _ := db.SqlClient.Exec(insertDB, user.User_Id, user.Display_Name, user.Points, rank, country)
+
+	affectedrows, _ := res3.RowsAffected()
+	if affectedrows == 0 {
+		return errors.New("can't work with 42")
 	}
 
 	return nil
