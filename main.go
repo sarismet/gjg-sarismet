@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo"
@@ -31,7 +30,6 @@ func getLeaderBoard(c echo.Context) error {
 	if countryCode != "" {
 		countryCode = countryCode[1:]
 	}
-	fmt.Printf("country code is %s", countryCode)
 
 	users := RedisDB.GetLeaderboard(countryCode)
 
@@ -48,7 +46,7 @@ func getLeaderBoard(c echo.Context) error {
 
 func createUser(c echo.Context) error {
 
-	user := db.User{}
+	user := &db.User{}
 
 	defer c.Request().Body.Close()
 
@@ -59,7 +57,7 @@ func createUser(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, "I made a mistake I could not read the request sorry")
 	}
 
-	err = json.Unmarshal(b, &user)
+	err = json.Unmarshal(b, user)
 
 	if err != nil {
 		log.Printf("An error has occurred as marhalling %s", err)
@@ -70,23 +68,20 @@ func createUser(c echo.Context) error {
 	user.Points = 0
 	user.Rank = -1
 
-	err = RedisDB.SaveUser(&user)
-
+	_, err = RedisDB.SaveUser(user)
+	country := user.Country
 	if err != nil {
 		log.Printf("An error in save user has occurred %s tring to save on sql \n", err)
-		sqlerr := SQLDB.SaveUser(user)
+		sqlerr := SQLDB.SaveUser(user, country)
 		if sqlerr != nil {
 			return c.String(http.StatusInternalServerError, "An error comes up as saving user in both database!")
 		}
 		return c.String(http.StatusInternalServerError, "An error comes up as saving user in redis but stored in sql!")
 
 	} else {
-		go SQLDB.SaveUser(user)
+
+		go SQLDB.SaveUser(user, country)
 	}
-
-	fmt.Println("DEVAMKEE")
-
-	log.Printf("this is your cat: %#v", user)
 
 	user.Country = ""
 
@@ -129,40 +124,86 @@ func scoreSubmit(c echo.Context) error {
 		log.Printf("An error has occurred as marhalling %s", err)
 		return c.String(http.StatusInternalServerError, "An error comes up!")
 	}
-	now := time.Now()
-	secs := now.Unix()
-	score.Timestamp = secs
 
 	user, _ := RedisDB.GetUser(score.User_Id)
-
-	fmt.Printf("user point before %f", user.Points)
-	fmt.Printf("score worth is %f", score.Score_worth)
 
 	user.Points = user.Points + score.Score_worth
 	score.Score_worth = user.Points
 
-	fmt.Printf("user point after %f", user.Points)
-
-	err = RedisDB.SaveUser(&user)
+	score.Timestamp, err = RedisDB.SaveUser(&user)
 
 	if err != nil {
-
-		err = SQLDB.SubmitScore(score.User_Id)
-
-		if err != nil {
-			return c.String(http.StatusOK, "error as submiting score in both redis and sql")
-		}
+		return c.String(http.StatusOK, "error as submiting score in both redis")
 	} else {
-		go SQLDB.SubmitScore(score.User_Id)
+		go SQLDB.SubmitScore(score.User_Id, score.Score_worth)
 	}
 
-	return c.JSON(http.StatusOK, user)
+	return c.JSON(http.StatusOK, score)
+}
+
+func scoreSubmitMultiple(c echo.Context) error {
+
+	defer c.Request().Body.Close()
+
+	multipleScores := &db.MultipleScores{}
+	if err := c.Bind(multipleScores); err != nil {
+		return c.String(http.StatusInternalServerError, err.Error())
+	}
+
+	for key, score := range multipleScores.Scores {
+		user, _ := RedisDB.GetUser(score.User_Id)
+		user.Points = user.Points + score.Score_worth
+		score.Score_worth = user.Points
+		timestamp, err := RedisDB.SaveUser(&user)
+		multipleScores.Scores[key].Timestamp = timestamp
+		if err != nil {
+			return c.String(http.StatusOK, "error as submiting score in redis")
+		} else {
+			go SQLDB.SubmitScore(score.User_Id, score.Score_worth)
+		}
+	}
+
+	return c.JSON(http.StatusOK, multipleScores.Scores)
+}
+
+func createMultipleUsers(c echo.Context) error {
+
+	defer c.Request().Body.Close()
+
+	multipleUsers := &db.MultipleUsers{}
+	if err := c.Bind(multipleUsers); err != nil {
+		return c.String(http.StatusInternalServerError, err.Error())
+	}
+
+	for index, user := range multipleUsers.Users {
+
+		user.User_Id = uuid.New().String()
+		user.Points = 0
+		user.Rank = -1
+
+		_, err := RedisDB.SaveUser(&user)
+		country := user.Country
+
+		if err != nil {
+			log.Printf("An error in save user has occurred %s tring to save on sql \n", err)
+			sqlerr := SQLDB.SaveUser(&user, country)
+			if sqlerr != nil {
+				return c.String(http.StatusInternalServerError, "An error comes up as saving user in both database!")
+			}
+			return c.String(http.StatusInternalServerError, "An error comes up as saving user in redis but stored in sql!")
+
+		} else {
+			go SQLDB.SaveUser(&user, country)
+		}
+
+		multipleUsers.Users[index].Country = ""
+
+	}
+
+	return c.JSON(http.StatusOK, multipleUsers.Users)
 }
 
 func main() {
-	fmt.Println("Hello")
-	db.Helllo()
-	db.Psql()
 
 	var err error
 
@@ -171,10 +212,6 @@ func main() {
 	if err != nil {
 		fmt.Printf("Error as conencting to Redis %s", err)
 	}
-
-	RedisDB.Client.Set(Ctx, "language", "Go", 0)
-	language := RedisDB.Client.Get(Ctx, "language")
-	year := RedisDB.Client.Get(Ctx, "year")
 
 	size := RedisDB.Client.Get(Ctx, "size")
 
@@ -197,9 +234,6 @@ func main() {
 		fmt.Println("SUCCESS TO CREATE TABLE")
 	}
 
-	fmt.Println(language.Val()) // "Go"
-	fmt.Println(year.Val())     // ""
-
 	e := echo.New()
 	e.GET("/", hello)
 
@@ -207,9 +241,11 @@ func main() {
 	e.GET("/leaderboard", getLeaderBoard)
 
 	e.POST("/user/create", createUser)
+	e.POST("/user/create_multiple", createMultipleUsers)
 	e.GET("/user/profile:user_guid", getUserProile)
 
 	e.POST("/score/submit", scoreSubmit)
+	e.POST("/score/submit_multiple", scoreSubmitMultiple)
 
 	e.Start(":8000")
 }

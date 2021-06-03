@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/go-redis/redis"
 )
@@ -33,16 +34,23 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) []LeaderBoardRespond
 			return nil
 		}
 		arraysize, _ = strconv.Atoi(countrySizeVal)
+	} else {
+		fmt.Println("Country Name is empty")
+		totalUserVal := db.Client.Get(Ctx, "totalUserNumber").Val()
+		if totalUserVal == "" {
+			fmt.Println("However we cannot get total users")
+			db.Client.Set(Ctx, "totalUserNumber", 0, 0)
+			return nil
+		}
+		arraysize, _ = strconv.Atoi(totalUserVal)
 	}
-
+	fmt.Printf("arraySize %d", arraysize)
 	users := make([]LeaderBoardRespond, arraysize)
 
 	for rank, member := range scores.Val() {
 		var tempUsers LeaderBoardRespond
 
 		val, err := db.Client.Get(Ctx, member.Member.(string)).Result()
-		//fmt.Print("val is ")
-		//fmt.Println(val)
 		if err == nil {
 			json.Unmarshal([]byte(val), &tempUsers)
 
@@ -59,17 +67,17 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) []LeaderBoardRespond
 			}
 			if countryName != "" {
 				if tempUsers.Country == countryName {
-					users = append(users, tempUsers)
+					users[rank] = tempUsers
 				}
 			} else {
-				users = append(users, tempUsers)
+				users[rank] = tempUsers
 			}
 		}
 	}
 	return users
 }
 
-func (db *RedisDatabase) SaveUser(user *User) error {
+func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
 
 	userMember := &redis.Z{
 		Member: user.User_Id,
@@ -80,37 +88,43 @@ func (db *RedisDatabase) SaveUser(user *User) error {
 	rank := pipe.ZRevRank(Ctx, "leaderboard", user.User_Id)
 	_, err := pipe.Exec(Ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	fmt.Println(rank.Val(), err)
+	now := time.Now()
+	secs := now.Unix()
+
 	user.Rank = int(rank.Val())
-	fmt.Println("Rank is ")
-	fmt.Println(user.Rank)
 
 	countrySizeVal := db.Client.Get(Ctx, user.Country).Val()
 	if countrySizeVal == "" {
-		fmt.Println("However we cannot find any size of this country")
 		db.Client.Set(Ctx, user.Country, 1, 0)
 	} else {
 		size, _ := strconv.Atoi(countrySizeVal)
 		db.Client.Set(Ctx, user.Country, size+1, 0)
 	}
 
+	totalUserNumberSizeVal := db.Client.Get(Ctx, "totalUserNumber").Val()
+	if totalUserNumberSizeVal == "" {
+		db.Client.Set(Ctx, "totalUserNumber", 1, 0)
+	} else {
+		size, _ := strconv.Atoi(totalUserNumberSizeVal)
+		db.Client.Set(Ctx, "totalUserNumber", size+1, 0)
+		fmt.Printf("total size is %d", size+1)
+	}
+
 	userJson, err := json.Marshal(user)
 	if err != nil {
 		fmt.Printf("Error: %s", err)
-		return err
+		return 0, err
 	}
-
-	fmt.Printf("userJson is %s ", userJson)
 
 	err = db.Client.Set(Ctx, user.User_Id, userJson, 0).Err()
 	if err != nil {
 		fmt.Println(err)
-		return nil
+		return 0, err
 	}
-	return nil
+	return secs, nil
 }
 
 func (db *RedisDatabase) GetUser(user_guid string) (User, error) {
