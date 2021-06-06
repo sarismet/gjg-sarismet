@@ -1,8 +1,3 @@
-
-# GJG-Ismet
-
-A brief description of what this project does and who it's for
-
 ## Run Locally
 
 Clone the project in your go path
