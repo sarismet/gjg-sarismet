@@ -23,7 +23,6 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) []LeaderBoardRespond
 	if scores == nil {
 		return nil
 	}
-
 	var arraysize int
 	if countryName != "" {
 		fmt.Println("Country Name is not empty")
@@ -46,23 +45,17 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) []LeaderBoardRespond
 	}
 	fmt.Printf("arraySize %d", arraysize)
 	users := make([]LeaderBoardRespond, arraysize)
-
 	for rank, member := range scores.Val() {
 		var tempUsers LeaderBoardRespond
-
 		val, err := db.Client.Get(Ctx, member.Member.(string)).Result()
 		if err == nil {
 			json.Unmarshal([]byte(val), &tempUsers)
-
 			if tempUsers.Rank != rank {
 				tempUsers.Rank = rank
-
 				var ttuser User
 				ttuser.Rank = rank
 				json.Unmarshal([]byte(val), &ttuser)
-
 				userJson, _ := json.Marshal(ttuser)
-
 				db.Client.Set(Ctx, ttuser.User_Id, userJson, 0)
 			}
 			if countryName != "" {
@@ -78,7 +71,7 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) []LeaderBoardRespond
 }
 
 func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
-
+	// FROM HERE
 	userMember := &redis.Z{
 		Member: user.User_Id,
 		Score:  float64(user.Points),
@@ -90,12 +83,10 @@ func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-
+	// TO HERE REFERENCE: https://blog.logrocket.com/how-to-use-redis-as-a-database-with-go-redis/
 	now := time.Now()
 	secs := now.Unix()
-
 	user.Rank = int(rank.Val())
-
 	countrySizeVal := db.Client.Get(Ctx, user.Country).Val()
 	if countrySizeVal == "" {
 		db.Client.Set(Ctx, user.Country, 1, 0)
@@ -103,25 +94,19 @@ func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
 		size, _ := strconv.Atoi(countrySizeVal)
 		db.Client.Set(Ctx, user.Country, size+1, 0)
 	}
-
 	totalUserNumberSizeVal := db.Client.Get(Ctx, "totalUserNumber").Val()
 	if totalUserNumberSizeVal == "" {
 		db.Client.Set(Ctx, "totalUserNumber", 1, 0)
 	} else {
 		size, _ := strconv.Atoi(totalUserNumberSizeVal)
 		db.Client.Set(Ctx, "totalUserNumber", size+1, 0)
-		fmt.Printf("total size is %d", size+1)
 	}
-
 	userJson, err := json.Marshal(user)
 	if err != nil {
-		fmt.Printf("Error: %s", err)
 		return 0, err
 	}
-
 	err = db.Client.Set(Ctx, user.User_Id, userJson, 0).Err()
 	if err != nil {
-		fmt.Println(err)
 		return 0, err
 	}
 	return secs, nil
@@ -129,7 +114,6 @@ func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
 
 func (db *RedisDatabase) GetUser(user_guid string) (User, error) {
 	var user User
-
 	val, err := db.Client.Get(Ctx, user_guid).Result()
 	if err == nil {
 		json.Unmarshal([]byte(val), &user)
@@ -144,13 +128,10 @@ func NewRedisDatabase() (*RedisDatabase, error) {
 		DB:       0,
 	})
 	if err := client.Ping(Ctx).Err(); err != nil {
+		fmt.Println("REdis hataaaaa")
 		return nil, err
 	}
 	return &RedisDatabase{
 		Client: client,
 	}, nil
-}
-
-func Helllo() {
-	fmt.Println("Hello")
 }

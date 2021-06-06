@@ -13,13 +13,9 @@ type SQLDatabase struct {
 	SqlClient *sql.DB
 }
 
-func Psql() {
-	fmt.Println("Hello Psql")
-}
-
 func NewSqlDatabase() (*SQLDatabase, error) {
 	const (
-		host     = "localhost"
+		host     = "0.0.0.0"
 		port     = 5432
 		user     = "postgres"
 		password = "123"
@@ -32,6 +28,7 @@ func NewSqlDatabase() (*SQLDatabase, error) {
 
 	if err != nil {
 		log.Fatal(err)
+		return nil, err
 	}
 	return &SQLDatabase{
 		SqlClient: db,
@@ -47,6 +44,7 @@ func (db *SQLDatabase) GetAllUser(countryName string) []LeaderBoardRespond {
 		rows, err := db.SqlClient.Query(userSql)
 		if err != nil {
 			log.Fatal("Failed to execute query: ", err)
+			return nil
 		}
 		_ = rows
 		db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = general").Scan(rowCount)
@@ -56,6 +54,7 @@ func (db *SQLDatabase) GetAllUser(countryName string) []LeaderBoardRespond {
 		rows, err := db.SqlClient.Query(userSql, countryName)
 		if err != nil {
 			log.Fatal("Failed to execute query: ", err)
+			return nil
 		}
 		_ = rows
 		db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", countryName).Scan(&rowCount)
@@ -95,11 +94,8 @@ func (db *SQLDatabase) SaveUser(user *User, country string) error {
 	if res != nil {
 		affectedrows, _ := res.RowsAffected()
 		if affectedrows == 0 {
-			fmt.Println("Country ISO CODE does not exist inserting")
 			insertCountryNumberDB := `INSERT INTO CountryNumberSizes (code, size) values($1, $2);`
-			result, err := db.SqlClient.Exec(insertCountryNumberDB, country, 1)
-			fmt.Print("RESULT INSERT IS \n")
-			fmt.Println(result)
+			_, err := db.SqlClient.Exec(insertCountryNumberDB, country, 1)
 			if err != nil {
 				return err
 			}
@@ -111,24 +107,18 @@ func (db *SQLDatabase) SaveUser(user *User, country string) error {
 	if res2 != nil {
 		affectedrows, _ := res2.RowsAffected()
 		if affectedrows == 0 {
-			fmt.Println("Country ISO CODE does not exist inserting")
 			insertCountryNumberDB := `INSERT INTO CountryNumberSizes (code, size) values($1, $2);`
-			result, err := db.SqlClient.Exec(insertCountryNumberDB, "general", 1)
-			fmt.Print("RESULT INSERT IS \n")
-			fmt.Println(result)
+			_, err := db.SqlClient.Exec(insertCountryNumberDB, "general", 1)
 			if err != nil {
 				return err
 			}
 		}
 	}
 
-	fmt.Printf("User Country is %s \n", country)
 	var rank int
 	insertDB := `INSERT INTO  Users (User_Id, Display_Name, Points, Rank, Country) values($1, $2, $3, $4, $5);`
 	db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", "general").Scan(&rank)
-	fmt.Printf("BAK BURAYA RANK IS %d \n", rank)
 	res3, _ := db.SqlClient.Exec(insertDB, user.User_Id, user.Display_Name, user.Points, rank, country)
-
 	affectedrows, _ := res3.RowsAffected()
 	if affectedrows == 0 {
 		return errors.New("can't work with 42")
@@ -139,13 +129,11 @@ func (db *SQLDatabase) SaveUser(user *User, country string) error {
 
 func (db *SQLDatabase) SubmitScore(user_guid string, score float64) error {
 	userSql := "UPDATE users SET Points = Points + $2 WHERE User_Id = $1"
-
 	_, err := db.SqlClient.Exec(userSql, user_guid, score)
 	if err != nil {
 		log.Fatal("Failed to execute query: ", err)
 		return err
 	}
-
 	return nil
 }
 
@@ -158,22 +146,16 @@ func (db *SQLDatabase) CreateTableNotExists() error {
         Country VARCHAR(10) NOT NULL,
         PRIMARY KEY (User_Id));`
 	_, err := db.SqlClient.Exec(createDB)
-
 	if err != nil {
-		fmt.Printf("There is an err in sql database save %s", err)
 		return err
 	}
-
 	createCountryDB := `CREATE TABLE IF NOT EXISTS CountryNumberSizes(
         code VARCHAR(30) UNIQUE NOT NULL,
         size INT  NOT NULL,
         PRIMARY KEY (code));`
 	_, err = db.SqlClient.Exec(createCountryDB)
-
 	if err != nil {
-		fmt.Printf("There is an err in sql database save %s", err)
 		return err
 	}
-
 	return nil
 }
