@@ -31,12 +31,29 @@ Install dependencies
   go get github.com/lib/pq
   go get github.com/go-redis/redis
 ```
+Install docker then run
+```
+  docker run --name postgresql-container -p 5432:5432 -e POSTGRES_PASSWORD=123 -d postgres
+  get the container id via docker ps and run
+  docker exec -it container-id bash
+  psql -h localhost -p 5432 -U postgres -W
+```
+```
+  docker run --name=rediboard -p 6379:6379 redis
+```
+
+
 
 Start the server
 
 ```bash
   go run main.go
 ```
+or
+
+If you have remote database host or 
+you can run redis, postgresql and our project in docker compose then
+I left a Dockerfile for this project.
 
   
 ## API Reference
