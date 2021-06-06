@@ -18,7 +18,7 @@ var (
 	Ctx = context.TODO()
 )
 
-func (db *RedisDatabase) GetLeaderboard(countryName string) []LeaderBoardRespond {
+func (db *RedisDatabase) GetLeaderboard(countryName string) []User {
 	scores := db.Client.ZRevRangeWithScores(Ctx, "leaderboard", 0, -1)
 	if scores == nil {
 		return nil
@@ -44,9 +44,9 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) []LeaderBoardRespond
 		arraysize, _ = strconv.Atoi(totalUserVal)
 	}
 	fmt.Printf("arraySize %d", arraysize)
-	users := make([]LeaderBoardRespond, arraysize)
+	users := make([]User, arraysize)
 	for rank, member := range scores.Val() {
-		var tempUsers LeaderBoardRespond
+		var tempUsers User
 		val, err := db.Client.Get(Ctx, member.Member.(string)).Result()
 		if err == nil {
 			json.Unmarshal([]byte(val), &tempUsers)

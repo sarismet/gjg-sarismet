@@ -6,9 +6,10 @@ import (
 	"log"
 	"net/http"
 
+	"gjg-sarismet/db"
+
 	"github.com/google/uuid"
 	"github.com/labstack/echo"
-	"github.com/sarismet/ismet/db"
 )
 
 var (
@@ -22,7 +23,7 @@ func hello(c echo.Context) error {
 }
 
 func getLeaderBoard(c echo.Context) error {
-
+	var lusers []db.LeaderBoardRespond
 	countryCode := c.Param("country_iso_code")
 	if countryCode != "" {
 		countryCode = countryCode[1:]
@@ -34,8 +35,18 @@ func getLeaderBoard(c echo.Context) error {
 		if users == nil {
 			fmt.Println("fail to get from both redis and sql")
 		}
+
 	}
-	return c.JSON(http.StatusOK, users)
+	size := len(users)
+	lusers = make([]db.LeaderBoardRespond, size)
+	for index, user := range users {
+		RedisDB.SaveUser(&user)
+		lusers[index] = db.LeaderBoardRespond{
+			Rank: user.Rank, Points: user.Points, Display_Name: user.Display_Name, Country: user.Country,
+		}
+
+	}
+	return c.JSON(http.StatusOK, lusers)
 }
 
 func createUser(c echo.Context) error {
@@ -77,6 +88,7 @@ func getUserProile(c echo.Context) error {
 		if err != nil {
 			fmt.Printf("Error as getting user from SQL %s", err)
 		}
+		RedisDB.SaveUser(&user)
 	}
 	return c.JSON(http.StatusOK, user)
 }

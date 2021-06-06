@@ -35,7 +35,7 @@ func NewSqlDatabase() (*SQLDatabase, error) {
 	}, nil
 }
 
-func (db *SQLDatabase) GetAllUser(countryName string) []LeaderBoardRespond {
+func (db *SQLDatabase) GetAllUser(countryName string) []User {
 
 	var rows sql.Rows
 	var rowCount int
@@ -61,12 +61,12 @@ func (db *SQLDatabase) GetAllUser(countryName string) []LeaderBoardRespond {
 	}
 	defer rows.Close()
 
-	users := make([]LeaderBoardRespond, rowCount)
+	users := make([]User, rowCount)
 
 	index := 0
 	for rows.Next() {
-		var user LeaderBoardRespond
-		err := rows.Scan(&user.Rank, &user.Points, &user.Display_Name, &user.Country)
+		var user User
+		err := rows.Scan(&user.User_Id, &user.Rank, &user.Points, &user.Display_Name, &user.Country)
 		if err != nil {
 			log.Fatal("Failed to execute query: ", err)
 		}
