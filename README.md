@@ -3,6 +3,7 @@
 Clone the project in your go path
 
 ```bash
+  cd ~/go/src/github.com/
   git clone https://github.com/sarismet/gjg-sarismet
 ```
 
