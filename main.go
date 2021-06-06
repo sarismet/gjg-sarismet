@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 
-	"gjg-sarismet/db"
+	"github.com/gjg-sarismet/db"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo"
