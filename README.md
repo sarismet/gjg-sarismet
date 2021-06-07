@@ -55,6 +55,9 @@ If you have remote database host or
 you can run redis, postgresql and our project in docker compose then
 I left a Dockerfile for this project.
 
+## Important Rules
+
+- Ranks star with 0
   
 ## API Reference
 
