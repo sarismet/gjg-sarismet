@@ -221,6 +221,12 @@ Leaderboard
   When we get the connection of Redis and we request a get method then the response would
   not be the same as the response we would get from Postgresql.
 ```
+```
+- If some users have the same points then the order in postgres database and redis can be different.
+  We order the same users in postgres database by considering their record date however in Redis
+  there is no rule to order users with the same point. We can define a rule for them in Redis.
+```
+
   
 ## Tech Stack
 **Server:** Golang, Echo
