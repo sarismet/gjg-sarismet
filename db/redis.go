@@ -33,6 +33,7 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) []User {
 			return nil
 		}
 		arraysize, _ = strconv.Atoi(countrySizeVal)
+		fmt.Printf("arraySize %d\n", arraysize)
 	} else {
 		fmt.Println("Country Name is empty")
 		totalUserVal := db.Client.Get(Ctx, "totalUserNumber").Val()
@@ -43,7 +44,7 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) []User {
 		}
 		arraysize, _ = strconv.Atoi(totalUserVal)
 	}
-	fmt.Printf("arraySize %d", arraysize)
+	fmt.Printf("arraySize %d\n", arraysize)
 	users := make([]User, arraysize)
 	for rank, member := range scores.Val() {
 		var tempUsers User
@@ -87,17 +88,23 @@ func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
 	now := time.Now()
 	secs := now.Unix()
 	user.Rank = int(rank.Val())
+	userInRedis := db.Client.Get(Ctx, user.User_Id).Val()
+	is_user_present := false
+	if userInRedis != "" {
+		is_user_present = true
+	}
 	countrySizeVal := db.Client.Get(Ctx, user.Country).Val()
 	if countrySizeVal == "" {
 		db.Client.Set(Ctx, user.Country, 1, 0)
-	} else {
+	} else if !is_user_present {
 		size, _ := strconv.Atoi(countrySizeVal)
 		db.Client.Set(Ctx, user.Country, size+1, 0)
 	}
+
 	totalUserNumberSizeVal := db.Client.Get(Ctx, "totalUserNumber").Val()
 	if totalUserNumberSizeVal == "" {
 		db.Client.Set(Ctx, "totalUserNumber", 1, 0)
-	} else {
+	} else if !is_user_present {
 		size, _ := strconv.Atoi(totalUserNumberSizeVal)
 		db.Client.Set(Ctx, "totalUserNumber", size+1, 0)
 	}
@@ -115,8 +122,10 @@ func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
 func (db *RedisDatabase) GetUser(user_guid string) (User, error) {
 	var user User
 	val, err := db.Client.Get(Ctx, user_guid).Result()
+	rank := db.Client.ZRevRank(Ctx, "leaderboard", user.User_Id)
 	if err == nil {
 		json.Unmarshal([]byte(val), &user)
+		user.Rank = int(rank.Val())
 	}
 	return user, err
 }
@@ -128,7 +137,6 @@ func NewRedisDatabase() (*RedisDatabase, error) {
 		DB:       0,
 	})
 	if err := client.Ping(Ctx).Err(); err != nil {
-		fmt.Println("REdis hataaaaa")
 		return nil, err
 	}
 	return &RedisDatabase{

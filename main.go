@@ -29,18 +29,26 @@ func getLeaderBoard(c echo.Context) error {
 		countryCode = countryCode[1:]
 	}
 	users := RedisDB.GetLeaderboard(countryCode)
+	is_Redis_empty := false
 	if users == nil {
 		fmt.Println("fail to get from redis trying to get from sql")
-		users = SQLDB.GetAllUser(countryCode)
-		if users == nil {
-			fmt.Println("fail to get from both redis and sql")
+		var err error
+		users, err = SQLDB.GetAllUser(countryCode)
+		if err != nil {
+			return c.String(http.StatusNotFound, err.Error())
+		} else if err.Error() == "rowCount is zero" {
+			return c.JSON(http.StatusOK, lusers)
 		}
-
+		is_Redis_empty = true
 	}
 	size := len(users)
+	fmt.Printf("size %d", size)
 	lusers = make([]db.LeaderBoardRespond, size)
 	for index, user := range users {
-		RedisDB.SaveUser(&user)
+		if is_Redis_empty {
+			RedisDB.SaveUser(&user)
+		}
+
 		lusers[index] = db.LeaderBoardRespond{
 			Rank: user.Rank, Points: user.Points, Display_Name: user.Display_Name, Country: user.Country,
 		}
@@ -95,7 +103,7 @@ func getUserProile(c echo.Context) error {
 
 func scoreSubmit(c echo.Context) error {
 
-	score := db.Score{}
+	score := &db.Score{}
 	defer c.Request().Body.Close()
 	err := c.Bind(score)
 	if err != nil {

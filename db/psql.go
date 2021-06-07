@@ -19,7 +19,7 @@ func NewSqlDatabase() (*SQLDatabase, error) {
 		port     = 5432
 		user     = "postgres"
 		password = "123"
-		dbname   = "sarismetdb"
+		dbname   = "postgres"
 	)
 	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+
 		"password=%s dbname=%s sslmode=disable",
@@ -35,7 +35,7 @@ func NewSqlDatabase() (*SQLDatabase, error) {
 	}, nil
 }
 
-func (db *SQLDatabase) GetAllUser(countryName string) []User {
+func (db *SQLDatabase) GetAllUser(countryName string) ([]User, error) {
 
 	var rows sql.Rows
 	var rowCount int
@@ -44,7 +44,7 @@ func (db *SQLDatabase) GetAllUser(countryName string) []User {
 		rows, err := db.SqlClient.Query(userSql)
 		if err != nil {
 			log.Fatal("Failed to execute query: ", err)
-			return nil
+			return nil, err
 		}
 		_ = rows
 		db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = general").Scan(rowCount)
@@ -54,15 +54,17 @@ func (db *SQLDatabase) GetAllUser(countryName string) []User {
 		rows, err := db.SqlClient.Query(userSql, countryName)
 		if err != nil {
 			log.Fatal("Failed to execute query: ", err)
-			return nil
+			return nil, err
 		}
 		_ = rows
 		db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", countryName).Scan(&rowCount)
 	}
+	if rowCount == 0 {
+		return nil, errors.New("rowCount is zero")
+	}
+
 	defer rows.Close()
-
 	users := make([]User, rowCount)
-
 	index := 0
 	for rows.Next() {
 		var user User
@@ -74,7 +76,7 @@ func (db *SQLDatabase) GetAllUser(countryName string) []User {
 		index = index + 1
 	}
 
-	return users
+	return users, nil
 }
 func (db *SQLDatabase) GetUser(user_guid string) (User, error) {
 	var user User
@@ -157,5 +159,6 @@ func (db *SQLDatabase) CreateTableNotExists() error {
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
