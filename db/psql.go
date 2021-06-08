@@ -38,19 +38,19 @@ func NewSqlDatabase() (*SQLDatabase, error) {
 func (db *SQLDatabase) GetAllUser(countryName string) ([]User, error) {
 
 	var rows sql.Rows
-	var rowCount int
+	var rowCount int = 0
 	if countryName == "" {
-		userSql := "SELECT User_Id, Display_Name, Points, Rank, Country FROM users ORDER BY Points DESC;"
+		userSql := "select * from (select *, rank() over (order by points desc) as rank from users) t;"
 		rows, err := db.SqlClient.Query(userSql)
 		if err != nil {
 			log.Fatal("Failed to execute query: ", err)
 			return nil, err
 		}
 		_ = rows
-		db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = general").Scan(rowCount)
+		db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = general").Scan(&rowCount)
 
 	} else {
-		userSql := "SELECT User_Id, Display_Name, Points, Rank, Country FROM users WHERE Country = $1  ORDER BY Points DESC;"
+		userSql := "select * from (select *, rank() over (order by points desc) as rank from users) t where Country = $1;"
 		rows, err := db.SqlClient.Query(userSql, countryName)
 		if err != nil {
 			log.Fatal("Failed to execute query: ", err)
@@ -80,9 +80,9 @@ func (db *SQLDatabase) GetAllUser(countryName string) ([]User, error) {
 }
 func (db *SQLDatabase) GetUser(user_guid string) (User, error) {
 	var user User
-	userSql := "SELECT User_Id, Display_Name, Points, Rank, Country FROM users WHERE User_Id = $1"
+	userSql := "select * from (select *, rank() over (order by points desc) as rank from users) t where display_name = $1;"
 
-	err := db.SqlClient.QueryRow(userSql, user_guid).Scan(&user.User_Id, &user.Display_Name, &user.Points, &user.Rank, &user.Country)
+	err := db.SqlClient.QueryRow(userSql, user_guid).Scan(&user.User_Id, &user.Display_Name, &user.Points, &user.Country, &user.Rank)
 	if err != nil {
 		log.Fatal("Failed to execute query: ", err)
 	}
@@ -93,6 +93,7 @@ func (db *SQLDatabase) SaveUser(user *User, country string) error {
 
 	updateDB := `UPDATE CountryNumberSizes SET size = size + 1 WHERE code = $1;`
 	res, _ := db.SqlClient.Exec(updateDB, country)
+
 	if res != nil {
 		affectedrows, _ := res.RowsAffected()
 		if affectedrows == 0 {
@@ -117,13 +118,14 @@ func (db *SQLDatabase) SaveUser(user *User, country string) error {
 		}
 	}
 
-	var rank int
-	insertDB := `INSERT INTO  Users (User_Id, Display_Name, Points, Rank, Country) values($1, $2, $3, $4, $5);`
-	db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", "general").Scan(&rank)
-	res3, _ := db.SqlClient.Exec(insertDB, user.User_Id, user.Display_Name, user.Points, rank, country)
-	affectedrows, _ := res3.RowsAffected()
-	if affectedrows == 0 {
-		return errors.New("can't work with 42")
+	insertDB := `INSERT INTO  Users (User_Id, Display_Name, Points, Country) values($1, $2, $3, $4);`
+	res3, _ := db.SqlClient.Exec(insertDB, user.User_Id, user.Display_Name, user.Points, country)
+
+	if res3 != nil {
+		affectedrows, _ := res3.RowsAffected()
+		if affectedrows == 0 {
+			return errors.New("can't work with 42")
+		}
 	}
 
 	return nil
@@ -144,7 +146,6 @@ func (db *SQLDatabase) CreateTableNotExists() error {
         User_Id VARCHAR(100) UNIQUE NOT NULL,
         Display_Name VARCHAR(100) NOT NULL,
         Points FLOAT NOT NULL,
-        Rank INT  NOT NULL,
         Country VARCHAR(10) NOT NULL,
         PRIMARY KEY (User_Id));`
 	_, err := db.SqlClient.Exec(createDB)

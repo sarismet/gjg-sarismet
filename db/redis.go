@@ -18,10 +18,10 @@ var (
 	Ctx = context.TODO()
 )
 
-func (db *RedisDatabase) GetLeaderboard(countryName string) []User {
+func (db *RedisDatabase) GetLeaderboard(countryName string) ([]User, int) {
 	scores := db.Client.ZRevRangeWithScores(Ctx, "leaderboard", 0, -1)
 	if scores == nil {
-		return nil
+		return nil, 0
 	}
 	var arraysize int
 	if countryName != "" {
@@ -30,7 +30,7 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) []User {
 		if countrySizeVal == "" {
 			fmt.Println("However we cannot find any size of this country")
 			db.Client.Set(Ctx, countryName, 0, 0)
-			return nil
+			return nil, 0
 		}
 		arraysize, _ = strconv.Atoi(countrySizeVal)
 		fmt.Printf("arraySize %d\n", arraysize)
@@ -40,35 +40,30 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) []User {
 		if totalUserVal == "" {
 			fmt.Println("However we cannot get total users")
 			db.Client.Set(Ctx, "totalUserNumber", 0, 0)
-			return nil
+			return nil, 0
 		}
 		arraysize, _ = strconv.Atoi(totalUserVal)
 	}
 	fmt.Printf("arraySize %d\n", arraysize)
 	users := make([]User, arraysize)
-	for rank, member := range scores.Val() {
-		var tempUsers User
-		val, err := db.Client.Get(Ctx, member.Member.(string)).Result()
+	index := 0
+	for _, member := range scores.Val() {
+
+		tempUsers, err := db.GetUser(member.Member.(string))
 		if err == nil {
-			json.Unmarshal([]byte(val), &tempUsers)
-			if tempUsers.Rank != rank {
-				tempUsers.Rank = rank
-				var ttuser User
-				ttuser.Rank = rank
-				json.Unmarshal([]byte(val), &ttuser)
-				userJson, _ := json.Marshal(ttuser)
-				db.Client.Set(Ctx, ttuser.User_Id, userJson, 0)
-			}
 			if countryName != "" {
 				if tempUsers.Country == countryName {
-					users[rank] = tempUsers
+					users[index] = tempUsers
+					index++
 				}
 			} else {
-				users[rank] = tempUsers
+				users[index] = tempUsers
+				index++
 			}
 		}
+
 	}
-	return users
+	return users, arraysize
 }
 
 func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
@@ -125,7 +120,11 @@ func (db *RedisDatabase) GetUser(user_guid string) (User, error) {
 	rank := db.Client.ZRevRank(Ctx, "leaderboard", user.User_Id)
 	if err == nil {
 		json.Unmarshal([]byte(val), &user)
-		user.Rank = int(rank.Val())
+		if user.Rank != int(rank.Val()) {
+			user.Rank = int(rank.Val())
+			userJson, _ := json.Marshal(user)
+			db.Client.Set(Ctx, user.User_Id, userJson, 0)
+		}
 	}
 	return user, err
 }
