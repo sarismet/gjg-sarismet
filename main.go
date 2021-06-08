@@ -108,6 +108,8 @@ func createMultipleUsers(c echo.Context) error {
 				return c.String(http.StatusInternalServerError, "An error comes up as saving user in both database!")
 			}
 			return c.String(http.StatusInternalServerError, "An error comes up as saving user in redis but stored in sql!")
+		} else {
+			go SQLDB.SaveUser(&multipleUsers.Users[index], country)
 		}
 		multipleUsers.Users[index].Country = ""
 	}
