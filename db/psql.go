@@ -37,28 +37,33 @@ func NewSqlDatabase() (*SQLDatabase, error) {
 
 func (db *SQLDatabase) GetAllUser(countryName string) ([]User, error) {
 
-	var rows sql.Rows
-	var rowCount int = 0
+	var rows *sql.Rows
+	var rowCount int
 	if countryName == "" {
 		userSql := "select * from (select *, rank() over (order by points desc) as rank from users) t;"
-		rows, err := db.SqlClient.Query(userSql)
+		var err error
+		rows, err = db.SqlClient.Query(userSql)
 		if err != nil {
 			log.Fatal("Failed to execute query: ", err)
 			return nil, err
 		}
 		_ = rows
-		db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = general").Scan(&rowCount)
+		db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", "general").Scan(&rowCount)
+		fmt.Printf("Round count is %d", rowCount)
 
 	} else {
-		userSql := "select * from (select *, rank() over (order by points desc) as rank from users) t where Country = $1;"
-		rows, err := db.SqlClient.Query(userSql, countryName)
+		userSql := "select * from (select *, rank() over (order by points desc) as rank from users) t where Country = " + "'" + countryName + "';"
+		var err error
+		rows, err = db.SqlClient.Query(userSql)
 		if err != nil {
 			log.Fatal("Failed to execute query: ", err)
 			return nil, err
 		}
 		_ = rows
 		db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", countryName).Scan(&rowCount)
+		fmt.Printf("Round count asdasdasd is %d", rowCount)
 	}
+
 	if rowCount == 0 {
 		return nil, errors.New("rowCount is zero")
 	}
@@ -68,10 +73,11 @@ func (db *SQLDatabase) GetAllUser(countryName string) ([]User, error) {
 	index := 0
 	for rows.Next() {
 		var user User
-		err := rows.Scan(&user.User_Id, &user.Rank, &user.Points, &user.Display_Name, &user.Country)
+		err := rows.Scan(&user.User_Id, &user.Display_Name, &user.Points, &user.Country, &user.Rank)
 		if err != nil {
 			log.Fatal("Failed to execute query: ", err)
 		}
+		user.Rank = user.Rank - 1
 		users[index] = user
 		index = index + 1
 	}
@@ -80,12 +86,17 @@ func (db *SQLDatabase) GetAllUser(countryName string) ([]User, error) {
 }
 func (db *SQLDatabase) GetUser(user_guid string) (User, error) {
 	var user User
-	userSql := "select * from (select *, rank() over (order by points desc) as rank from users) t where display_name = $1;"
+	userSql := "select * from (select *, rank() over (order by points desc) as rank from users) t where User_Id = " + "'" + user_guid + "';"
 
-	err := db.SqlClient.QueryRow(userSql, user_guid).Scan(&user.User_Id, &user.Display_Name, &user.Points, &user.Country, &user.Rank)
+	fmt.Printf("userSql %s\n", userSql)
+	fmt.Printf("user_guid %s\n", user_guid)
+	err := db.SqlClient.QueryRow(userSql).Scan(&user.User_Id, &user.Display_Name, &user.Points, &user.Country, &user.Rank)
+
 	if err != nil {
-		log.Fatal("Failed to execute query: ", err)
+		return user, err
 	}
+
+	user.Rank = user.Rank - 1
 
 	return user, err
 }

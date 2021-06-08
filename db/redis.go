@@ -98,11 +98,13 @@ func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
 
 	totalUserNumberSizeVal := db.Client.Get(Ctx, "totalUserNumber").Val()
 	if totalUserNumberSizeVal == "" {
+		fmt.Println("totalUserNumber ekledik")
 		db.Client.Set(Ctx, "totalUserNumber", 1, 0)
 	} else if !is_user_present {
 		size, _ := strconv.Atoi(totalUserNumberSizeVal)
 		db.Client.Set(Ctx, "totalUserNumber", size+1, 0)
 	}
+
 	userJson, err := json.Marshal(user)
 	if err != nil {
 		return 0, err
@@ -117,7 +119,18 @@ func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
 func (db *RedisDatabase) GetUser(user_guid string) (User, error) {
 	var user User
 	val, err := db.Client.Get(Ctx, user_guid).Result()
-	rank := db.Client.ZRevRank(Ctx, "leaderboard", user.User_Id)
+	if err != nil {
+		return user, err
+	}
+
+	pipe := db.Client.TxPipeline()
+
+	rank := pipe.ZRevRank(Ctx, "leaderboard", user.User_Id)
+	_, err = pipe.Exec(Ctx)
+	if err != nil {
+		return user, err
+	}
+
 	if err == nil {
 		json.Unmarshal([]byte(val), &user)
 		if user.Rank != int(rank.Val()) {

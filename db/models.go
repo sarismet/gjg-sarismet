@@ -22,11 +22,11 @@ type Score struct {
 }
 
 type MultipleUsers struct {
-	Count int `json:"count" bson:"count"`
-	Users []User
+	Count int    `json:"count" bson:"count"`
+	Users []User `json:"users" bson:"users"`
 }
 
 type MultipleScores struct {
-	Count  int `json:"count" bson:"count"`
-	Scores []Score
+	Count  int     `json:"count" bson:"count"`
+	Scores []Score `json:"scores" bson:"scores"`
 }
