@@ -55,6 +55,9 @@ func getLeaderBoard(c echo.Context) error {
 			Rank: user.Rank, Points: user.Points, Display_Name: user.Display_Name, Country: user.Country,
 		}
 	}
+	if lusers == nil {
+		lusers = make([]db.LeaderBoardRespond, 1)
+	}
 	return c.JSON(http.StatusOK, lusers)
 }
 
