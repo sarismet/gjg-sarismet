@@ -122,22 +122,17 @@ func (db *RedisDatabase) GetUser(user_guid string) (User, error) {
 	if err != nil {
 		return user, err
 	}
-
+	json.Unmarshal([]byte(val), &user)
 	pipe := db.Client.TxPipeline()
-
 	rank := pipe.ZRevRank(Ctx, "leaderboard", user.User_Id)
 	_, err = pipe.Exec(Ctx)
 	if err != nil {
 		return user, err
 	}
-
-	if err == nil {
-		json.Unmarshal([]byte(val), &user)
-		if user.Rank != int(rank.Val()) {
-			user.Rank = int(rank.Val())
-			userJson, _ := json.Marshal(user)
-			db.Client.Set(Ctx, user.User_Id, userJson, 0)
-		}
+	if user.Rank != int(rank.Val()) {
+		user.Rank = int(rank.Val())
+		userJson, _ := json.Marshal(user)
+		db.Client.Set(Ctx, user.User_Id, userJson, 0)
 	}
 	return user, err
 }

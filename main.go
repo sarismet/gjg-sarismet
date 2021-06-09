@@ -210,5 +210,5 @@ func main() {
 	e.POST("/score/submit", scoreSubmit)
 	e.POST("/score/submit_multiple", scoreSubmitMultiple)
 
-	e.Start("127.0.0.1:8000")
+	e.Start(":8000")
 }
