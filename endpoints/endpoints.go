@@ -22,8 +22,15 @@ type App struct {
 	SQLDB   *db.SQLDatabase
 }
 
+func (app *App) Checking(l *pq.Listener) {
+	fmt.Println("I am checking")
+}
 func (app *App) Sync(l *pq.Listener) {
-	fmt.Println("Dinliyorum kankaaa")
+	for {
+
+		app.Checking(l)
+		time.Sleep(30 * time.Second)
+	}
 }
 
 func Init() {
@@ -53,7 +60,7 @@ func Init() {
 		}
 	}
 
-	listener := pq.NewListener(psqlInfo, 10*time.Second, 20*time.Second, reportProblem)
+	listener := pq.NewListener(psqlInfo, 10*time.Second, 2*time.Minute, reportProblem)
 
 	go app.Sync(listener)
 
