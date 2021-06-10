@@ -30,6 +30,9 @@ Install dependencies
   go get github.com/labstack/echo
   go get github.com/lib/pq
   go get github.com/go-redis/redis
+  go get github.com/alicebob/miniredis
+  go get github.com/stretchr/testify
+  go get github.com/DATA-DOG/go-sqlmock
 ```
 Install docker then run
 ```
