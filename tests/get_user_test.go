@@ -69,7 +69,6 @@ func TestGetUser(t *testing.T) {
 		json.Unmarshal(rec.Body.Bytes(), &responseUser)
 		assert.Equal(t, http.StatusOK, rec.Code)
 		assert.Equal(t, responseUser.Points, float64(0))
-		assert.Equal(t, responseUser.User_Id, user.User_Id)
 		assert.Equal(t, responseUser.Rank, user.Rank)
 	}
 

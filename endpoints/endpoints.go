@@ -159,7 +159,7 @@ func (app *App) Hello(c echo.Context) error {
 }
 
 func (app *App) GetLeaderBoard(c echo.Context) error {
-	var lusers []db.LeaderBoardRespond
+
 	countryCode := c.Param("country_iso_code")
 	if countryCode != "" {
 		countryCode = countryCode[1:]
@@ -169,27 +169,29 @@ func (app *App) GetLeaderBoard(c echo.Context) error {
 	app.mu.Lock()
 	users, size = app.RedisDB.GetLeaderboard(countryCode)
 	is_Redis_empty := false
-	if users == nil {
-		fmt.Println("fail to get from redis trying to get from sql")
+	if size == -1 {
+		fmt.Println("-1-1-1-1-1-1-1-1-1")
 		users, size = app.SQLDB.GetAllUser(countryCode)
-		if users != nil {
-			is_Redis_empty = true
+	} else {
+		if users == nil {
+			fmt.Println("fail to get from redis trying to get from sql")
+			users, size = app.SQLDB.GetAllUser(countryCode)
+			if users != nil {
+				is_Redis_empty = true
+			}
 		}
-		is_Redis_empty = true
 	}
+
 	fmt.Printf("size %d", size)
-	lusers = make([]db.LeaderBoardRespond, size)
-	for index, user := range users {
-		if is_Redis_empty {
+	if is_Redis_empty {
+		for _, user := range users {
 			fmt.Println("saving to redis with go keyword")
 			go app.RedisDB.SaveUser(&user)
 		}
-		lusers[index] = db.LeaderBoardRespond{
-			Rank: user.Rank, Points: user.Points, Display_Name: user.Display_Name, Country: user.Country,
-		}
 	}
+
 	app.mu.Unlock()
-	return c.JSON(http.StatusOK, lusers)
+	return c.JSON(http.StatusOK, users)
 }
 
 func (app *App) CreateUser(c echo.Context) error {
@@ -278,6 +280,7 @@ func (app *App) GetUserProile(c echo.Context) error {
 		app.RedisDB.SaveUser(&user)
 	}
 	app.mu.Unlock()
+	user.User_Id = ""
 	return c.JSON(http.StatusOK, user)
 }
 
@@ -295,6 +298,7 @@ func (app *App) ScoreSubmit(c echo.Context) error {
 	score.Score_worth = user.Points
 	score.Timestamp, err = app.RedisDB.SaveUser(&user)
 	if err != nil {
+		fmt.Println("error as saving to redis ", err)
 		err = app.SQLDB.SubmitScore(score.User_Id, score.Score_worth)
 		if err != nil {
 			app.mu.Unlock()

@@ -42,14 +42,19 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) ([]User, int) {
 			db.Client.Set(Ctx, "totalUserNumber", 0, 0)
 			return nil, 0
 		}
+
 		arraysize, _ = strconv.Atoi(totalUserVal)
 	}
-	fmt.Printf("arraySize %d\n", arraysize)
+
+	if arraysize > 1000 {
+		return nil, -1
+	}
 	users := make([]User, arraysize)
 	index := 0
 	for _, member := range scores.Val() {
 
 		tempUsers, err := db.GetUser(member.Member.(string))
+		tempUsers.User_Id = ""
 		if err == nil {
 			if countryName != "" {
 				if tempUsers.Country == countryName {
@@ -61,7 +66,6 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) ([]User, int) {
 				index++
 			}
 		}
-
 	}
 	return users, arraysize
 }

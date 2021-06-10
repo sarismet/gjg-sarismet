@@ -84,13 +84,14 @@ func (db *SQLDatabase) GetAllUser(countryName string) ([]User, int) {
 	users := make([]User, rowCount)
 	index := 0
 	for rows.Next() {
-		var user User
-		err := rows.Scan(&user.User_Id, &user.Display_Name, &user.Points, &user.Country, &user.Rank)
+
+		err := rows.Scan(&users[index].User_Id, &users[index].Display_Name, &users[index].Points, &users[index].Country, &users[index].Rank)
 		if err != nil {
 			log.Println("Failed to execute query: ", err)
 		}
-		user.Rank = user.Rank - 1
-		users[index] = user
+		users[index].User_Id = ""
+		users[index].Rank = users[index].Rank - 1
+
 		index = index + 1
 	}
 

@@ -1,7 +1,7 @@
 package db
 
 type User struct {
-	User_Id      string  `json:"user_id" bson:"user_id"`
+	User_Id      string  `json:"user_id,omitempty" bson:"user_id,omitempty"`
 	Display_Name string  `json:"display_name" bson:"display_name"`
 	Points       float64 `json:"points" bson:"points"`
 	Rank         int     `json:"rank" bson:"rank"`
