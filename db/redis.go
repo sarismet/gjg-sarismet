@@ -23,6 +23,19 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) ([]User, int) {
 	if scores == nil {
 		return nil, 0
 	}
+
+	totalUserVal := db.Client.Get(Ctx, "totalUserNumber").Val()
+
+	if totalUserVal == "" {
+		db.Client.Set(Ctx, "totalUserNumber", 0, 0)
+		return nil, 0
+	}
+	totalUserValSize, _ := strconv.Atoi(totalUserVal)
+
+	if totalUserValSize > 1000 {
+		return nil, -1
+	}
+
 	var arraysize int = 1
 	if countryName != "" {
 		fmt.Println("Country Name is not empty")
@@ -36,19 +49,10 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) ([]User, int) {
 		fmt.Printf("arraySize %d\n", arraysize)
 	} else {
 		fmt.Println("Country Name is empty")
-		totalUserVal := db.Client.Get(Ctx, "totalUserNumber").Val()
-		if totalUserVal == "" {
-			fmt.Println("However we cannot get total users")
-			db.Client.Set(Ctx, "totalUserNumber", 0, 0)
-			return nil, 0
-		}
 
-		arraysize, _ = strconv.Atoi(totalUserVal)
+		arraysize = totalUserValSize
 	}
 
-	if arraysize > 1000 {
-		return nil, -1
-	}
 	users := make([]User, arraysize)
 	index := 0
 	for _, member := range scores.Val() {

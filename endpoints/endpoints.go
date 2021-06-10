@@ -237,27 +237,53 @@ func (app *App) CreateMultipleUsers(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
 	app.mu.Lock()
-	for index := range multipleUsers.Users {
-		multipleUsers.Users[index].User_Id = uuid.New().String()
-		multipleUsers.Users[index].Points = 0
-		multipleUsers.Users[index].Rank = -1
 
-		_, err := app.RedisDB.SaveUser(&multipleUsers.Users[index])
-		country := multipleUsers.Users[index].Country
+	if multipleUsers.Count > 1000 {
+		fmt.Println(" multipleUsers.Count > 1000 ")
+		err := app.SQLDB.SaveMultipleUser(&multipleUsers.Users)
 		if err != nil {
-			log.Printf("An error in save user has occurred %s tring to save on sql \n", err)
-			sqlerr := app.SQLDB.SaveUser(&multipleUsers.Users[index], country)
-			if sqlerr != nil {
-				app.mu.Unlock()
-				return c.String(http.StatusInternalServerError, "An error comes up as saving user in both database!")
-			}
-			log.Println("An error comes up as saving user in redis but stored in sql!")
-			app.syncNeeded = true
-		} else {
-			go app.SQLDB.SaveUser(&multipleUsers.Users[index], country)
+			log.Println("An error in save users in sql", err)
 		}
-		multipleUsers.Users[index].Country = ""
+		go func(users *[]db.User) {
+			fmt.Println(" GO FUNC ")
+			size := len(*users)
+			index := 0
+			for index < size {
+				multipleUsers.Users[index].User_Id = uuid.New().String()
+				multipleUsers.Users[index].Points = 0
+				multipleUsers.Users[index].Rank = -1
+				_, err := app.RedisDB.SaveUser(&multipleUsers.Users[index])
+				if err != nil {
+					log.Printf("An error in save user has occurred %s tring to make syncNeeded true \n", err)
+					app.syncNeeded = true
+				}
+				index++
+			}
+		}(&multipleUsers.Users)
+	} else {
+		for index := range multipleUsers.Users {
+			multipleUsers.Users[index].User_Id = uuid.New().String()
+			multipleUsers.Users[index].Points = 0
+			multipleUsers.Users[index].Rank = -1
+
+			_, err := app.RedisDB.SaveUser(&multipleUsers.Users[index])
+			country := multipleUsers.Users[index].Country
+			if err != nil {
+				log.Printf("An error in save user has occurred %s tring to save on sql \n", err)
+				sqlerr := app.SQLDB.SaveUser(&multipleUsers.Users[index], country)
+				if sqlerr != nil {
+					app.mu.Unlock()
+					return c.String(http.StatusInternalServerError, "An error comes up as saving user in both database!")
+				}
+				log.Println("An error comes up as saving user in redis but stored in sql!")
+				app.syncNeeded = true
+			} else {
+				go app.SQLDB.SaveUser(&multipleUsers.Users[index], country)
+			}
+			multipleUsers.Users[index].Country = ""
+		}
 	}
+
 	app.mu.Unlock()
 	return c.JSON(http.StatusCreated, multipleUsers.Users)
 }

@@ -7,6 +7,7 @@ import (
 	"log"
 	"sync"
 
+	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 )
 
@@ -114,6 +115,74 @@ func (db *SQLDatabase) GetUser(user_guid string) (User, error) {
 	user.Rank = user.Rank - 1
 	return user, err
 }
+
+func (db *SQLDatabase) SaveMultipleUser(users *[]User) error {
+	db.Sqlmu.Lock()
+
+	var countrySize map[string]int = make(map[string]int)
+	size := len(*users)
+	updateGeneralDB := `UPDATE CountryNumberSizes SET size = size + $2 WHERE code = $1;`
+	res2, _ := db.SqlClient.Exec(updateGeneralDB, "general", size)
+	if res2 != nil {
+		affectedrows, _ := res2.RowsAffected()
+		if affectedrows == 0 {
+			insertCountryNumberDB := `INSERT INTO CountryNumberSizes (code, size) values($1, $2);`
+			_, err := db.SqlClient.Exec(insertCountryNumberDB, "general", size)
+			if err != nil {
+				db.Sqlmu.Unlock()
+				return err
+			}
+		}
+	}
+
+	index := 0
+	insertDB := "INSERT INTO  Users (User_Id, Display_Name, Points, Country) values "
+
+	for index < size-1 {
+		country := (*users)[index].Country
+		insertDB += fmt.Sprintf("('%s', '%s', %f, '%s'),", uuid.New().String(), (*users)[index].Display_Name, 0.0, country)
+		countrySize[country] += 1
+		index++
+	}
+
+	country := (*users)[size-1].Country
+	insertDB += fmt.Sprintf("('%s', '%s', %f, '%s')", uuid.New().String(), (*users)[size-1].Display_Name, 0.0, country)
+	countrySize[country] += 1
+
+	insertDB = insertDB + ";"
+	res3, _ := db.SqlClient.Exec(insertDB)
+
+	if res3 != nil {
+		affectedrows, _ := res3.RowsAffected()
+		if affectedrows == 0 {
+			db.Sqlmu.Unlock()
+			return errors.New("can't")
+		}
+	}
+
+	for iso_code, size := range countrySize {
+		fmt.Printf("key[%s] value[%d]\n", iso_code, size)
+
+		updateDB := `UPDATE CountryNumberSizes SET size = size + $2 WHERE code = $1;`
+		res, _ := db.SqlClient.Exec(updateDB, iso_code, size)
+
+		if res != nil {
+			affectedrows, _ := res.RowsAffected()
+			if affectedrows == 0 {
+				insertCountryNumberDB := `INSERT INTO CountryNumberSizes (code, size) values($1, $2);`
+				_, err := db.SqlClient.Exec(insertCountryNumberDB, iso_code, size)
+				if err != nil {
+					db.Sqlmu.Unlock()
+					return err
+				}
+			}
+		}
+	}
+
+	db.Sqlmu.Unlock()
+	return nil
+}
+
 func (db *SQLDatabase) SaveUser(user *User, country string) error {
 	db.Sqlmu.Lock()
 	updateDB := `UPDATE CountryNumberSizes SET size = size + 1 WHERE code = $1;`
