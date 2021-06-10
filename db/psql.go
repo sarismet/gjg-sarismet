@@ -13,7 +13,7 @@ type SQLDatabase struct {
 	SqlClient *sql.DB
 }
 
-func NewSqlDatabase() (*SQLDatabase, error) {
+func NewSqlDatabase() (*SQLDatabase, string, error) {
 	const (
 		host     = "0.0.0.0"
 		port     = 5432
@@ -28,11 +28,17 @@ func NewSqlDatabase() (*SQLDatabase, error) {
 
 	if err != nil {
 		log.Fatal(err)
-		return nil, err
+		return nil, "", err
+
+	}
+
+	if err != nil {
+		log.Fatal(err)
+		return nil, "", err
 	}
 	return &SQLDatabase{
 		SqlClient: db,
-	}, nil
+	}, psqlInfo, nil
 }
 
 func (db *SQLDatabase) GetAllUser(countryName string) ([]User, error) {

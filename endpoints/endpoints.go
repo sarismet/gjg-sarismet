@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gjg-sarismet/db"
 	"github.com/google/uuid"
 	"github.com/labstack/echo"
+	"github.com/lib/pq"
 )
 
 var (
@@ -18,6 +20,10 @@ var (
 type App struct {
 	RedisDB *db.RedisDatabase
 	SQLDB   *db.SQLDatabase
+}
+
+func (app *App) Sync(l *pq.Listener) {
+	fmt.Println("Dinliyorum kankaaa")
 }
 
 func Init() {
@@ -31,14 +37,25 @@ func Init() {
 	if size.Val() == "" {
 		RedisDB.Client.Set(Ctx, "leaderboardsize", 0, 0)
 	}
-	SQLDB, err := db.NewSqlDatabase()
+	SQLDB, psqlInfo, err := db.NewSqlDatabase()
 	if err != nil {
 		log.Fatal("Error as conencting to Sql")
 	}
+
 	err = SQLDB.CreateTableNotExists()
 	if err != nil {
 		log.Fatal("Error as creating Sql tables")
 	}
+
+	reportProblem := func(et pq.ListenerEventType, err error) {
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+
+	listener := pq.NewListener(psqlInfo, 10*time.Second, 20*time.Second, reportProblem)
+
+	go app.Sync(listener)
 
 	app.RedisDB = RedisDB
 	app.SQLDB = SQLDB
