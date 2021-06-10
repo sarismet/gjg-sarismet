@@ -63,7 +63,7 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) ([]User, int) {
 		}
 
 	}
-	return nil, arraysize
+	return users, arraysize
 }
 
 func (db *RedisDatabase) SaveUser(user *User) (int64, error) {

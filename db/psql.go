@@ -55,7 +55,7 @@ func (db *SQLDatabase) GetAllUser(countryName string) ([]User, int) {
 		if err != nil {
 			log.Fatal("Failed to execute query: ", err)
 			db.Sqlmu.Unlock()
-			return nil, 1
+			return nil, 0
 		}
 		_ = rows
 		db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", "general").Scan(&rowCount)
@@ -68,7 +68,7 @@ func (db *SQLDatabase) GetAllUser(countryName string) ([]User, int) {
 		if err != nil {
 			log.Fatal("Failed to execute query: ", err)
 			db.Sqlmu.Unlock()
-			return nil, 1
+			return nil, 0
 		}
 		_ = rows
 		db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", countryName).Scan(&rowCount)
@@ -77,7 +77,7 @@ func (db *SQLDatabase) GetAllUser(countryName string) ([]User, int) {
 	db.Sqlmu.Unlock()
 
 	if rowCount == 0 || rows == nil {
-		return nil, 1
+		return nil, 0
 	}
 
 	defer rows.Close()
