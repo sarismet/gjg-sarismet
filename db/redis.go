@@ -23,7 +23,7 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) ([]User, int) {
 	if scores == nil {
 		return nil, 0
 	}
-	var arraysize int
+	var arraysize int = 1
 	if countryName != "" {
 		fmt.Println("Country Name is not empty")
 		countrySizeVal := db.Client.Get(Ctx, countryName).Val()
@@ -63,7 +63,7 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) ([]User, int) {
 		}
 
 	}
-	return users, arraysize
+	return nil, arraysize
 }
 
 func (db *RedisDatabase) SaveUser(user *User) (int64, error) {

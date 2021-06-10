@@ -73,4 +73,14 @@ func TestGetUser(t *testing.T) {
 		assert.Equal(t, responseUser.Rank, user.Rank)
 	}
 
+	req = httptest.NewRequest(http.MethodGet, "/", strings.NewReader(""))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	c.SetParamNames("user_guid")
+	c.SetParamValues("/" + "there-is-no-such-user-id")
+	if assert.NoError(t, app.GetUserProile(c)) {
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	}
+
 }

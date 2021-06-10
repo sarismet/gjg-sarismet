@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sync"
 
 	_ "github.com/lib/pq"
 )
 
 type SQLDatabase struct {
+	Sqlmu     sync.Mutex
 	SqlClient *sql.DB
 }
 
@@ -41,17 +43,19 @@ func NewSqlDatabase() (*SQLDatabase, string, error) {
 	}, psqlInfo, nil
 }
 
-func (db *SQLDatabase) GetAllUser(countryName string) ([]User, error) {
+func (db *SQLDatabase) GetAllUser(countryName string) ([]User, int) {
 
 	var rows *sql.Rows
 	var rowCount int
+	db.Sqlmu.Lock()
 	if countryName == "" {
 		userSql := "select * from (select *, rank() over (order by points desc) as rank from users) t;"
 		var err error
 		rows, err = db.SqlClient.Query(userSql)
 		if err != nil {
 			log.Fatal("Failed to execute query: ", err)
-			return nil, err
+			db.Sqlmu.Unlock()
+			return nil, 1
 		}
 		_ = rows
 		db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", "general").Scan(&rowCount)
@@ -63,15 +67,17 @@ func (db *SQLDatabase) GetAllUser(countryName string) ([]User, error) {
 		rows, err = db.SqlClient.Query(userSql)
 		if err != nil {
 			log.Fatal("Failed to execute query: ", err)
-			return nil, err
+			db.Sqlmu.Unlock()
+			return nil, 1
 		}
 		_ = rows
 		db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", countryName).Scan(&rowCount)
 		fmt.Printf("Round count asdasdasd is %d", rowCount)
 	}
+	db.Sqlmu.Unlock()
 
-	if rowCount == 0 {
-		return nil, errors.New("rowCount is zero")
+	if rowCount == 0 || rows == nil {
+		return nil, 1
 	}
 
 	defer rows.Close()
@@ -88,9 +94,10 @@ func (db *SQLDatabase) GetAllUser(countryName string) ([]User, error) {
 		index = index + 1
 	}
 
-	return users, nil
+	return users, rowCount
 }
 func (db *SQLDatabase) GetUser(user_guid string) (User, error) {
+	db.Sqlmu.Lock()
 	var user User
 	userSql := "select * from (select *, rank() over (order by points desc) as rank from users) t where User_Id = " + "'" + user_guid + "';"
 
@@ -99,15 +106,15 @@ func (db *SQLDatabase) GetUser(user_guid string) (User, error) {
 	err := db.SqlClient.QueryRow(userSql).Scan(&user.User_Id, &user.Display_Name, &user.Points, &user.Country, &user.Rank)
 
 	if err != nil {
+		db.Sqlmu.Unlock()
 		return user, err
 	}
-
+	db.Sqlmu.Unlock()
 	user.Rank = user.Rank - 1
-
 	return user, err
 }
 func (db *SQLDatabase) SaveUser(user *User, country string) error {
-
+	db.Sqlmu.Lock()
 	updateDB := `UPDATE CountryNumberSizes SET size = size + 1 WHERE code = $1;`
 	res, _ := db.SqlClient.Exec(updateDB, country)
 
@@ -117,6 +124,7 @@ func (db *SQLDatabase) SaveUser(user *User, country string) error {
 			insertCountryNumberDB := `INSERT INTO CountryNumberSizes (code, size) values($1, $2);`
 			_, err := db.SqlClient.Exec(insertCountryNumberDB, country, 1)
 			if err != nil {
+				db.Sqlmu.Unlock()
 				return err
 			}
 		}
@@ -130,6 +138,7 @@ func (db *SQLDatabase) SaveUser(user *User, country string) error {
 			insertCountryNumberDB := `INSERT INTO CountryNumberSizes (code, size) values($1, $2);`
 			_, err := db.SqlClient.Exec(insertCountryNumberDB, "general", 1)
 			if err != nil {
+				db.Sqlmu.Unlock()
 				return err
 			}
 		}
@@ -141,20 +150,25 @@ func (db *SQLDatabase) SaveUser(user *User, country string) error {
 	if res3 != nil {
 		affectedrows, _ := res3.RowsAffected()
 		if affectedrows == 0 {
-			return errors.New("can't work with 42")
+			db.Sqlmu.Unlock()
+			return errors.New("can't")
 		}
 	}
+	db.Sqlmu.Unlock()
 
 	return nil
 }
 
 func (db *SQLDatabase) SubmitScore(user_guid string, score float64) error {
+	db.Sqlmu.Lock()
 	userSql := "UPDATE users SET Points = Points + $2 WHERE User_Id = $1"
 	_, err := db.SqlClient.Exec(userSql, user_guid, score)
 	if err != nil {
 		log.Fatal("Failed to execute query: ", err)
+		db.Sqlmu.Unlock()
 		return err
 	}
+	db.Sqlmu.Unlock()
 	return nil
 }
 
