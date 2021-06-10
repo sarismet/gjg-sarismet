@@ -7,8 +7,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gjg-sarismet/db"
+	"github.com/gjg-sarismet/endpoints"
 	"github.com/labstack/echo"
 	"github.com/stretchr/testify/assert"
+)
+
+var (
+	app   endpoints.App
+	user  *db.User
+	users []*db.User
+	e     *echo.Echo
 )
 
 func TestCreateMultipleUsers(t *testing.T) {

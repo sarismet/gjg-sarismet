@@ -44,9 +44,12 @@ func TestCreateUser(t *testing.T) {
 	}
 	app.RedisDB = RedisDB
 	app.SQLDB = SQLDB
+
+	e := echo.New()
+
 	var user *db.User
 	userJSON := `{"display_name":"Snow","country":"na"}`
-	e := echo.New()
+
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(userJSON))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
