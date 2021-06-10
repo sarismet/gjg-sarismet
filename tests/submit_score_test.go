@@ -2,6 +2,7 @@ package tests
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -17,7 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestCreateUser(t *testing.T) {
+func TestSubmitScore(t *testing.T) {
 	app := endpoints.App{}
 	mr, err := miniredis.Run()
 	if err != nil {
@@ -45,16 +46,30 @@ func TestCreateUser(t *testing.T) {
 	app.RedisDB = RedisDB
 	app.SQLDB = SQLDB
 	var user *db.User
+
 	userJSON := `{"display_name":"Snow","country":"na"}`
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(userJSON))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
-
 	if assert.NoError(t, app.CreateUser(c)) {
 		json.Unmarshal(rec.Body.Bytes(), &user)
 		assert.Equal(t, http.StatusCreated, rec.Code)
 		assert.Equal(t, "Snow", user.Display_Name)
 	}
+
+	userJSON = fmt.Sprintf(`{"score_worth":100,"user_id":"%s"}`, user.User_Id)
+	req = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(userJSON))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	if assert.NoError(t, app.ScoreSubmit(c)) {
+		var responseScore db.Score
+		json.Unmarshal(rec.Body.Bytes(), &responseScore)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, responseScore.Score_worth, float64(100))
+		assert.Equal(t, responseScore.User_Id, user.User_Id)
+	}
+
 }
