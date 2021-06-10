@@ -16,8 +16,8 @@ type LeaderBoardRespond struct {
 }
 
 type Score struct {
-	Score_worth float64 `json:"score_worth"`
-	User_Id     string  `json:"user_id"`
+	Score_worth float64 `json:"score_worth" bson:"score_worth"`
+	User_Id     string  `json:"user_id" bson:"user_id"`
 	Timestamp   int64   `json:"timestamp,omitempty" bson:"timestamp,omitempty"`
 }
 

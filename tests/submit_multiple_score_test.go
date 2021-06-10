@@ -2,6 +2,7 @@ package tests
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -17,8 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestCreateMultipleUsers(t *testing.T) {
-
+func TestMultipleSubmitScore(t *testing.T) {
 	app := endpoints.App{}
 	mr, err := miniredis.Run()
 	if err != nil {
@@ -47,7 +47,6 @@ func TestCreateMultipleUsers(t *testing.T) {
 	app.SQLDB = SQLDB
 
 	e := echo.New()
-
 	var users []*db.User
 
 	userJSON := `{"count":2,"users":[{"display_name":"ismet","country":"tr"},{"display_name":"ahmet","country":"tr"}]}`
@@ -60,4 +59,18 @@ func TestCreateMultipleUsers(t *testing.T) {
 		assert.Equal(t, http.StatusCreated, rec.Code)
 		assert.Equal(t, "ismet", users[0].Display_Name)
 	}
+
+	userJSON = fmt.Sprintf(`{"count":2,"scores":[{"score_worth":1000.0,"user_id":"%s"},{"score_worth":100.0,"user_id":"%s"}]}`, users[1].User_Id, users[0].User_Id)
+	req = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(userJSON))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	if assert.NoError(t, app.ScoreSubmitMultiple(c)) {
+		var responseScores []db.Score
+		json.Unmarshal(rec.Body.Bytes(), &responseScores)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, responseScores[1].User_Id, users[0].User_Id)
+		assert.Equal(t, responseScores[0].User_Id, users[1].User_Id)
+	}
+
 }

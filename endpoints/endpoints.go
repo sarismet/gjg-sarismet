@@ -200,7 +200,6 @@ func (app *App) ScoreSubmit(c echo.Context) error {
 }
 
 func (app *App) ScoreSubmitMultiple(c echo.Context) error {
-
 	defer c.Request().Body.Close()
 	multipleScores := &db.MultipleScores{}
 	if err := c.Bind(multipleScores); err != nil {
