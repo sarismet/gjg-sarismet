@@ -53,7 +53,7 @@ func (db *SQLDatabase) GetAllUser(countryName string) ([]User, int) {
 		var err error
 		rows, err = db.SqlClient.Query(userSql)
 		if err != nil {
-			log.Fatal("Failed to execute query: ", err)
+			log.Println("Failed to execute query: ", err)
 			db.Sqlmu.Unlock()
 			return nil, 0
 		}
@@ -66,7 +66,7 @@ func (db *SQLDatabase) GetAllUser(countryName string) ([]User, int) {
 		var err error
 		rows, err = db.SqlClient.Query(userSql)
 		if err != nil {
-			log.Fatal("Failed to execute query: ", err)
+			log.Println("Failed to execute query: ", err)
 			db.Sqlmu.Unlock()
 			return nil, 0
 		}
@@ -87,7 +87,7 @@ func (db *SQLDatabase) GetAllUser(countryName string) ([]User, int) {
 		var user User
 		err := rows.Scan(&user.User_Id, &user.Display_Name, &user.Points, &user.Country, &user.Rank)
 		if err != nil {
-			log.Fatal("Failed to execute query: ", err)
+			log.Println("Failed to execute query: ", err)
 		}
 		user.Rank = user.Rank - 1
 		users[index] = user
@@ -164,7 +164,7 @@ func (db *SQLDatabase) SubmitScore(user_guid string, score float64) error {
 	userSql := "UPDATE users SET Points = Points + $2 WHERE User_Id = $1"
 	_, err := db.SqlClient.Exec(userSql, user_guid, score)
 	if err != nil {
-		log.Fatal("Failed to execute query: ", err)
+		log.Println("Failed to execute query: ", err)
 		db.Sqlmu.Unlock()
 		return err
 	}
