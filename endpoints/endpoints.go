@@ -2,12 +2,16 @@ package endpoints
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gjg-sarismet/db"
+	"github.com/go-redis/redis"
 	"github.com/google/uuid"
 	"github.com/labstack/echo"
 	"github.com/lib/pq"
@@ -18,17 +22,76 @@ var (
 )
 
 type App struct {
+	mu      sync.Mutex
 	RedisDB *db.RedisDatabase
 	SQLDB   *db.SQLDatabase
 }
 
 func (app *App) Checking(l *pq.Listener) {
 	fmt.Println("I am checking")
+	var rows *sql.Rows
+	var rowCount int
+	userSql := "select * from (select *, rank() over (order by points desc) as rank from users) t;"
+	var err error
+	rows, err = app.SQLDB.SqlClient.Query(userSql)
+	if err != nil {
+		fmt.Println("Failed to execute query: ", err)
+		return
+	}
+	_ = rows
+	app.SQLDB.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", "general").Scan(&rowCount)
+	fmt.Printf("Round count is %d\n", rowCount)
+
+	if rowCount == 0 {
+		fmt.Printf("Round count is %d Returning... \n", 0)
+		return
+	}
+
+	if rows == nil {
+		fmt.Println("rows pointer is nil Returning... ")
+		return
+	}
+
+	defer rows.Close()
+	users := make([]db.User, rowCount)
+	index := 0
+	for rows.Next() {
+		err := rows.Scan(&users[index].User_Id, &users[index].Display_Name, &users[index].Points, &users[index].Country, &users[index].Rank)
+		if err != nil {
+			fmt.Println("Failed to execute query: ", err)
+		}
+		users[index].Rank = users[index].Rank - 1
+		// TODO : SET REDIS HERE FOR THIS USER
+		userMember := &redis.Z{
+			Member: users[index].User_Id,
+			Score:  float64(users[index].Points),
+		}
+		pipe := app.RedisDB.Client.TxPipeline()
+		pipe.ZAdd(db.Ctx, "leaderboard", userMember)
+		_, err = pipe.Exec(db.Ctx)
+		if err != nil {
+			fmt.Printf("failed due to %s Returning... \n", err.Error())
+			return
+		}
+		userJson, err := json.Marshal(users[index])
+		if err != nil {
+			fmt.Printf("failed due to %s Returning... \n", err.Error())
+			return
+		}
+		err = app.RedisDB.Client.Set(Ctx, users[index].User_Id, userJson, 0).Err()
+		if err != nil {
+			fmt.Printf("failed due to %s Returning... \n", err.Error())
+			return
+		}
+		index = index + 1
+	}
 }
+
 func (app *App) Sync(l *pq.Listener) {
 	for {
-
+		app.mu.Lock()
 		app.Checking(l)
+		app.mu.Unlock()
 		time.Sleep(30 * time.Second)
 	}
 }
@@ -60,7 +123,7 @@ func Init() {
 		}
 	}
 
-	listener := pq.NewListener(psqlInfo, 10*time.Second, 2*time.Minute, reportProblem)
+	listener := pq.NewListener(psqlInfo, 1*time.Second, 2*time.Minute, reportProblem)
 
 	go app.Sync(listener)
 
