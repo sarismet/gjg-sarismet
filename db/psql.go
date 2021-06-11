@@ -35,10 +35,6 @@ func NewSqlDatabase() (*SQLDatabase, string, error) {
 
 	}
 
-	if err != nil {
-		log.Fatal(err)
-		return nil, "", err
-	}
 	return &SQLDatabase{
 		SqlClient: db,
 	}, psqlInfo, nil

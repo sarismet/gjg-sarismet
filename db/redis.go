@@ -80,6 +80,10 @@ func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
 		Member: user.User_Id,
 		Score:  float64(user.Points),
 	}
+
+	if db == nil {
+		fmt.Println("asdasklşmasdklşjasd")
+	}
 	pipe := db.Client.TxPipeline()
 	pipe.ZAdd(Ctx, "leaderboard", userMember)
 	rank := pipe.ZRevRank(Ctx, "leaderboard", user.User_Id)

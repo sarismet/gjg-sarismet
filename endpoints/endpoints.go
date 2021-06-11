@@ -64,7 +64,6 @@ func (app *App) Checking(l *pq.Listener) {
 			fmt.Println("Failed to execute query: ", err)
 		}
 		users[index].Rank = users[index].Rank - 1
-		// TODO : SET REDIS HERE FOR THIS USER
 		userMember := &redis.Z{
 			Member: users[index].User_Id,
 			Score:  float64(users[index].Points),

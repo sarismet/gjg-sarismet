@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/alicebob/miniredis"
 	"github.com/gjg-sarismet/db"
 	"github.com/gjg-sarismet/endpoints"
@@ -33,18 +33,40 @@ func TestGetLeaderBoard(t *testing.T) {
 	RedisDB := &db.RedisDatabase{
 		Client: newRedisClient,
 	}
-	mockDB, _, err := sqlmock.New()
-	if mockDB == nil {
-		log.Fatalf("db is nil")
-	}
-	SQLDB := &db.SQLDatabase{
-		SqlClient: mockDB,
-	}
+	const (
+		host         = "localhost"
+		port         = 5432
+		databaseuser = "postgres"
+		password     = "123"
+	)
+
+	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+
+		"password=%s sslmode=disable",
+		host, port, databaseuser, password)
+
+	sqldb, err := sql.Open("postgres", psqlInfo)
+
 	if err != nil {
-		log.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
+		log.Fatal(err)
 	}
+
+	dbName := "testdb"
+	_, err = sqldb.Exec("create database " + dbName + ";")
+	if err != nil {
+		//handle the error
+		log.Fatal(err)
+	}
+
+	SQLDB := &db.SQLDatabase{
+		SqlClient: sqldb,
+	}
+
 	app.RedisDB = RedisDB
 	app.SQLDB = SQLDB
+	err = app.SQLDB.CreateTableNotExists()
+	if err != nil {
+		log.Fatalf("Error as creating Sql tables %s", err)
+	}
 
 	e := echo.New()
 
@@ -84,5 +106,11 @@ func TestGetLeaderBoard(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 		assert.Equal(t, responseUsers[0].Display_Name, users[0].Display_Name)
 		assert.Equal(t, responseUsers[1].Display_Name, users[1].Display_Name)
+	}
+
+	_, err = sqldb.Exec("DROP DATABASE IF EXISTS " + dbName + ";")
+	if err != nil {
+		//handle the error
+		log.Fatal(err)
 	}
 }
