@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -11,14 +12,15 @@ import (
 )
 
 type RedisDatabase struct {
-	Client *redis.Client
+	syncNeed bool
+	Client   *redis.Client
 }
 
 var (
 	Ctx = context.TODO()
 )
 
-func (db *RedisDatabase) GetLeaderboard(countryName string) ([]User, int) {
+func (db *RedisDatabase) GetLeaderboard(countryName string, sync bool) ([]User, int) {
 	scores := db.Client.ZRevRangeWithScores(Ctx, "leaderboard", 0, -1)
 	if scores == nil {
 		return nil, 0
@@ -32,7 +34,7 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) ([]User, int) {
 	}
 	totalUserValSize, _ := strconv.Atoi(totalUserVal)
 
-	if totalUserValSize > 1000 {
+	if totalUserValSize > 1000 && !sync {
 		return nil, -1
 	}
 
@@ -59,6 +61,7 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) ([]User, int) {
 
 		tempUsers, err := db.GetUser(member.Member.(string))
 		tempUsers.User_Id = ""
+		tempUsers.Timestamp = 0
 		if err == nil {
 			if countryName != "" {
 				if tempUsers.Country == countryName {
@@ -75,14 +78,14 @@ func (db *RedisDatabase) GetLeaderboard(countryName string) ([]User, int) {
 }
 
 func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
+	if db == nil {
+		db.syncNeed = true
+		return -1, errors.New("db is nil")
+	}
 	// FROM HERE
 	userMember := &redis.Z{
 		Member: user.User_Id,
 		Score:  float64(user.Points),
-	}
-
-	if db == nil {
-		fmt.Println("asdasklşmasdklşjasd")
 	}
 	pipe := db.Client.TxPipeline()
 	pipe.ZAdd(Ctx, "leaderboard", userMember)
@@ -95,6 +98,7 @@ func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
 	now := time.Now()
 	secs := now.Unix()
 	user.Rank = int(rank.Val())
+	user.Timestamp = secs
 	userInRedis := db.Client.Get(Ctx, user.User_Id).Val()
 	is_user_present := false
 	if userInRedis != "" {
@@ -107,7 +111,8 @@ func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
 		size, _ := strconv.Atoi(countrySizeVal)
 		db.Client.Set(Ctx, user.Country, size+1, 0)
 	}
-
+	cts := user.Country + "_timestamp"
+	db.Client.Set(Ctx, cts, secs, 0)
 	totalUserNumberSizeVal := db.Client.Get(Ctx, "totalUserNumber").Val()
 	if totalUserNumberSizeVal == "" {
 		fmt.Println("totalUserNumber ekledik")
@@ -117,12 +122,16 @@ func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
 		db.Client.Set(Ctx, "totalUserNumber", size+1, 0)
 	}
 
+	db.Client.Set(Ctx, "totalUserNumber_timestamp", secs, 0)
+
 	userJson, err := json.Marshal(user)
 	if err != nil {
+		db.syncNeed = true
 		return 0, err
 	}
 	err = db.Client.Set(Ctx, user.User_Id, userJson, 0).Err()
 	if err != nil {
+		db.syncNeed = true
 		return 0, err
 	}
 	return secs, nil
@@ -146,6 +155,7 @@ func (db *RedisDatabase) GetUser(user_guid string) (User, error) {
 		userJson, _ := json.Marshal(user)
 		db.Client.Set(Ctx, user.User_Id, userJson, 0)
 	}
+	user.Timestamp = 0.
 	return user, err
 }
 

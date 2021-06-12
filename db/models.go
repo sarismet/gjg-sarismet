@@ -6,6 +6,7 @@ type User struct {
 	Points       float64 `json:"points" bson:"points"`
 	Rank         int     `json:"rank" bson:"rank"`
 	Country      string  `json:"country,omitempty" bson:"country,omitempty"`
+	Timestamp    int64   `json:"timestamp,omitempty" bson:"timestamp,omitempty"`
 }
 
 type LeaderBoardRespond struct {

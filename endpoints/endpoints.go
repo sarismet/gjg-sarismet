@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -22,80 +23,213 @@ var (
 )
 
 type App struct {
-	mu         sync.Mutex
+	mu         sync.Mutex // we can define this in redis struct as well
 	RedisDB    *db.RedisDatabase
 	SQLDB      *db.SQLDatabase
-	syncNeeded bool
+	syncNeeded bool // we can also define this in redis struct as well
 }
 
 func (app *App) Checking(l *pq.Listener) {
-	fmt.Println("I am checking")
-	app.SQLDB.Sqlmu.Lock()
-	var rows *sql.Rows
-	var rowCount int
-	userSql := "select * from (select *, rank() over (order by points desc) as rank from users) t;"
-	var err error
-	rows, err = app.SQLDB.SqlClient.Query(userSql)
-	if err != nil {
-		fmt.Println("Failed to execute query: ", err)
-		return
-	}
-	_ = rows
-	app.SQLDB.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", "general").Scan(&rowCount)
-	fmt.Printf("Round count is %d\n", rowCount)
+	//fmt.Println("I am checking")
+	if app.syncNeeded && !app.SQLDB.SyncNeed {
+		fmt.Println("Sql is right but Redis is not right")
+		isSuccess := true
 
-	if rowCount == 0 {
-		fmt.Printf("Round count is %d Returning... \n", 0)
-		return
-	}
-
-	if rows == nil {
-		fmt.Println("rows pointer is nil Returning... ")
-		return
-	}
-	app.SQLDB.Sqlmu.Unlock()
-
-	defer rows.Close()
-	users := make([]db.User, rowCount)
-	index := 0
-	for rows.Next() {
-		err := rows.Scan(&users[index].User_Id, &users[index].Display_Name, &users[index].Points, &users[index].Country, &users[index].Rank)
+		var rows *sql.Rows
+		var rowCount int
+		userSql := "select * from (select *, rank() over (order by points desc) as rank from users) t;"
+		var err error
+		rows, err = app.SQLDB.SqlClient.Query(userSql)
 		if err != nil {
 			fmt.Println("Failed to execute query: ", err)
-		}
-		users[index].Rank = users[index].Rank - 1
-		userMember := &redis.Z{
-			Member: users[index].User_Id,
-			Score:  float64(users[index].Points),
-		}
-		pipe := app.RedisDB.Client.TxPipeline()
-		pipe.ZAdd(db.Ctx, "leaderboard", userMember)
-		_, err = pipe.Exec(db.Ctx)
-		if err != nil {
-			fmt.Printf("failed due to %s Returning... \n", err.Error())
 			return
 		}
-		userJson, err := json.Marshal(users[index])
-		if err != nil {
-			fmt.Printf("failed due to %s Returning... \n", err.Error())
+		_ = rows
+		app.SQLDB.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", "general").Scan(&rowCount)
+		fmt.Printf("Round count is %d\n", rowCount)
+
+		if rowCount == 0 {
+			fmt.Printf("Round count is %d Returning... \n", 0)
 			return
 		}
-		err = app.RedisDB.Client.Set(Ctx, users[index].User_Id, userJson, 0).Err()
-		if err != nil {
-			fmt.Printf("failed due to %s Returning... \n", err.Error())
+
+		if rows == nil {
+			fmt.Println("rows pointer is nil Returning... ")
 			return
 		}
-		index = index + 1
-	}
+
+		defer rows.Close()
+		users := make([]db.User, rowCount)
+		var countryRowCounts map[string]int = make(map[string]int)
+		index := 0
+		for rows.Next() {
+			err := rows.Scan(&users[index].User_Id, &users[index].Display_Name, &users[index].Points, &users[index].Country, &users[index].Rank)
+			if err != nil {
+				fmt.Println("Failed to execute query: ", err)
+			}
+			countryRowCounts[users[index].Country] += 1
+			users[index].Rank = users[index].Rank - 1
+			userMember := &redis.Z{
+				Member: users[index].User_Id,
+				Score:  float64(users[index].Points),
+			}
+			pipe := app.RedisDB.Client.TxPipeline()
+			pipe.ZAdd(db.Ctx, "leaderboard", userMember)
+			_, err = pipe.Exec(db.Ctx)
+			if err != nil {
+				fmt.Printf("failed due to %s Returning... \n", err.Error())
+				isSuccess = false
+			}
+			userJson, err := json.Marshal(users[index])
+			if err != nil {
+				fmt.Printf("failed due to %s Returning... \n", err.Error())
+				isSuccess = false
+			}
+			err = app.RedisDB.Client.Set(Ctx, users[index].User_Id, userJson, 0).Err()
+			if err != nil {
+				fmt.Printf("failed due to %s Returning... \n", err.Error())
+				isSuccess = false
+			}
+			index = index + 1
+		}
+		var totalCountryCount int = 0
+		for countryName, countryCount := range countryRowCounts {
+			totalCountryCount += countryCount
+			app.RedisDB.Client.Set(Ctx, countryName, countryCount, 0)
+		}
+		app.RedisDB.Client.Set(Ctx, "totalUserNumber", totalCountryCount, 0)
+		if isSuccess {
+			app.syncNeeded = false
+		}
+
+	} else if !app.syncNeeded && app.SQLDB.SyncNeed {
+		fmt.Println("Sql is not right but Redis is right")
+		isSuccess := true
+		users, _ := app.RedisDB.GetLeaderboard("", true)
+		var countryRowCounts map[string]int = make(map[string]int)
+		for _, user := range users {
+			updateUser := "UPDATE users SET Points = Points + $2, Timestamp = $3 WHERE User_Id = $1"
+			res2, _ := app.SQLDB.SqlClient.Exec(updateUser, user.User_Id, user.Points, user.Timestamp)
+			countryRowCounts[user.Country] += 1
+			if res2 != nil {
+				affectedrows, _ := res2.RowsAffected()
+				if affectedrows == 0 {
+					insertCountryNumberDB := `INSERT INTO  Users (User_Id, Display_Name, Points, Country, Timestamp) values($1, $2, $3, $4, $5);`
+					_, err := app.SQLDB.SqlClient.Exec(insertCountryNumberDB, user.User_Id, user.Points, user.Country, user.Timestamp)
+					if err != nil {
+						isSuccess = false
+					}
+				}
+			}
+
+		}
+
+		var totalCountryCount int = 0
+		for countryName, countryCount := range countryRowCounts {
+			totalCountryCount += countryCount
+			cts := countryName + "_timestamp"
+
+			secs, _ := strconv.Atoi(app.RedisDB.Client.Get(Ctx, cts).Val())
+			updateCountryCount := `UPDATE CountryNumberSizes SET size = $3, timestamp = $2 WHERE code = $1;`
+			res2, _ := app.SQLDB.SqlClient.Exec(updateCountryCount, countryName, secs, countryCount)
+			if res2 != nil {
+				affectedrows, _ := res2.RowsAffected()
+				if affectedrows == 0 {
+					insertCountryNumberDB := `INSERT INTO CountryNumberSizes (code, size, timestamp) values($1, $2, $3);`
+					_, err := app.SQLDB.SqlClient.Exec(insertCountryNumberDB, countryName, countryCount, secs)
+					if err != nil {
+						isSuccess = false
+					}
+				}
+			}
+		}
+		tsecs, _ := strconv.Atoi(app.RedisDB.Client.Get(Ctx, "totalUserNumber_timestamp").Val())
+		updateGeneralCount := `UPDATE CountryNumberSizes SET size = $3, timestamp = $2 WHERE code = $1;`
+		res3, _ := app.SQLDB.SqlClient.Exec(updateGeneralCount, "general", tsecs, totalCountryCount)
+		if res3 != nil {
+			affectedrows, _ := res3.RowsAffected()
+			if affectedrows == 0 {
+				insertGeneralNumberDB := `INSERT INTO CountryNumberSizes (code, size, timestamp) values($1, $2, $3);`
+				_, err := app.SQLDB.SqlClient.Exec(insertGeneralNumberDB, "general", totalCountryCount, tsecs)
+				if err != nil {
+					isSuccess = false
+				}
+			}
+		}
+		if isSuccess {
+			app.SQLDB.SyncNeed = false
+		}
+	} else if app.syncNeeded && app.SQLDB.SyncNeed {
+		fmt.Println("Both Sql and Redis are not right")
+		var users map[string]db.User = make(map[string]db.User)
+		redisUsers, sizeRedis := app.RedisDB.GetLeaderboard("", true)
+		sqlUsers, sizeSql := app.SQLDB.GetAllUser("")
+
+		index := 0
+		commonSize := 0
+		if sizeRedis <= sizeSql {
+			commonSize = sizeRedis
+		} else {
+			commonSize = sizeSql
+		}
+		for index < commonSize {
+			if redisUsers[index].User_Id == sqlUsers[index].User_Id {
+				if redisUsers[index].Timestamp > sqlUsers[index].Timestamp {
+					users[redisUsers[index].User_Id] = redisUsers[index]
+				} else {
+					users[redisUsers[index].User_Id] = sqlUsers[index]
+				}
+
+			} else {
+				if users[redisUsers[index].User_Id].User_Id == "" {
+					users[redisUsers[index].User_Id] = redisUsers[index]
+				} else if users[redisUsers[index].User_Id].Timestamp < redisUsers[index].Timestamp {
+					users[redisUsers[index].User_Id] = redisUsers[index]
+				}
+				if users[sqlUsers[index].User_Id].User_Id == "" {
+					users[sqlUsers[index].User_Id] = sqlUsers[index]
+				} else if users[sqlUsers[index].User_Id].Timestamp < sqlUsers[index].Timestamp {
+					users[sqlUsers[index].User_Id] = sqlUsers[index]
+				}
+
+			}
+
+			index++
+		}
+		if (sizeRedis - commonSize) > 0 {
+			index := 0
+			extraSize := sizeRedis - commonSize
+			for index < extraSize {
+				if users[sqlUsers[index].User_Id].User_Id == "" {
+					users[sqlUsers[index].User_Id] = sqlUsers[index]
+				} else if users[sqlUsers[index].User_Id].Timestamp < sqlUsers[index].Timestamp {
+					users[sqlUsers[index].User_Id] = sqlUsers[index]
+				}
+			}
+		} else {
+			index := 0
+			extraSize := sizeSql - commonSize
+			for index < extraSize {
+				if users[redisUsers[index].User_Id].User_Id == "" {
+					users[redisUsers[index].User_Id] = redisUsers[index]
+				} else if users[redisUsers[index].User_Id].Timestamp < redisUsers[index].Timestamp {
+					users[redisUsers[index].User_Id] = redisUsers[index]
+				}
+			}
+		}
+	} //else {
+	//fmt.Println("No need to sync databases")
+	//}
+
 }
 
 func (app *App) Sync(l *pq.Listener) {
 	for {
-		if app.syncNeeded {
-			app.mu.Lock()
-			app.Checking(l)
-			app.mu.Unlock()
-		}
+		app.SQLDB.Sqlmu.Lock()
+		app.mu.Lock()
+		app.Checking(l)
+		app.mu.Unlock()
+		app.SQLDB.Sqlmu.Unlock()
 		time.Sleep(30 * time.Second)
 	}
 }
@@ -118,7 +252,7 @@ func Init() {
 
 	err = SQLDB.CreateTableNotExists()
 	if err != nil {
-		log.Fatal("Error as creating Sql tables")
+		log.Fatalln("Error as creating Sql tables", err)
 	}
 
 	app.syncNeeded = false
@@ -166,10 +300,9 @@ func (app *App) GetLeaderBoard(c echo.Context) error {
 	var users []db.User
 	var size int
 	app.mu.Lock()
-	users, size = app.RedisDB.GetLeaderboard(countryCode)
+	users, size = app.RedisDB.GetLeaderboard(countryCode, false)
 	is_Redis_empty := false
 	if size == -1 {
-		fmt.Println("-1-1-1-1-1-1-1-1-1")
 		users, size = app.SQLDB.GetAllUser(countryCode)
 	} else {
 		if users == nil {
@@ -224,6 +357,7 @@ func (app *App) CreateUser(c echo.Context) error {
 	//this is done since we do not show the country iso code of user in response. We can use string interface as response but
 	//the order would be aphetically and in project pdf response fields is not ordered aphetically
 	user.Country = ""
+	user.Timestamp = 0
 	app.mu.Unlock()
 	return c.JSON(http.StatusCreated, user)
 }
@@ -280,6 +414,7 @@ func (app *App) CreateMultipleUsers(c echo.Context) error {
 				go app.SQLDB.SaveUser(&multipleUsers.Users[index], country)
 			}
 			multipleUsers.Users[index].Country = ""
+			multipleUsers.Users[index].Timestamp = 0
 		}
 	}
 
@@ -310,7 +445,7 @@ func (app *App) GetUserProile(c echo.Context) error {
 }
 
 func (app *App) ScoreSubmit(c echo.Context) error {
-
+	fmt.Println("Score Submit")
 	score := &db.Score{}
 	defer c.Request().Body.Close()
 	err := c.Bind(score)
