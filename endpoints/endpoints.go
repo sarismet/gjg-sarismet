@@ -30,10 +30,12 @@ type App struct {
 }
 
 func (app *App) Checking(l *pq.Listener) {
-	//fmt.Println("I am checking")
+	fmt.Println("I am checking wheter sync is needed")
 	if app.syncNeeded && !app.SQLDB.SyncNeed {
 		fmt.Println("Sql is right but Redis is not right")
-		isSuccess := true
+		isSuccess := true // we define this since if there is an error
+		// we do not return since we want to continue sync as much as we can
+		// if this is false then in the next round we execute its related if statement again
 
 		var rows *sql.Rows
 		var rowCount int
@@ -41,21 +43,13 @@ func (app *App) Checking(l *pq.Listener) {
 		var err error
 		rows, err = app.SQLDB.SqlClient.Query(userSql)
 		if err != nil {
-			fmt.Println("Failed to execute query: ", err)
-			return
+			isSuccess = false
 		}
 		_ = rows
 		app.SQLDB.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", "general").Scan(&rowCount)
-		fmt.Printf("Round count is %d\n", rowCount)
 
-		if rowCount == 0 {
-			fmt.Printf("Round count is %d Returning... \n", 0)
-			return
-		}
-
-		if rows == nil {
-			fmt.Println("rows pointer is nil Returning... ")
-			return
+		if rowCount == 0 || rows == nil {
+			isSuccess = false
 		}
 
 		defer rows.Close()
@@ -77,17 +71,17 @@ func (app *App) Checking(l *pq.Listener) {
 			pipe.ZAdd(db.Ctx, "leaderboard", userMember)
 			_, err = pipe.Exec(db.Ctx)
 			if err != nil {
-				fmt.Printf("failed due to %s Returning... \n", err.Error())
+				fmt.Printf("failed due to %s ... \n", err.Error())
 				isSuccess = false
 			}
 			userJson, err := json.Marshal(users[index])
 			if err != nil {
-				fmt.Printf("failed due to %s Returning... \n", err.Error())
+				fmt.Printf("failed due to %s ... \n", err.Error())
 				isSuccess = false
 			}
 			err = app.RedisDB.Client.Set(Ctx, users[index].User_Id, userJson, 0).Err()
 			if err != nil {
-				fmt.Printf("failed due to %s Returning... \n", err.Error())
+				fmt.Printf("failed due to %s ... \n", err.Error())
 				isSuccess = false
 			}
 			index = index + 1
@@ -217,9 +211,9 @@ func (app *App) Checking(l *pq.Listener) {
 				}
 			}
 		}
-	} //else {
-	//fmt.Println("No need to sync databases")
-	//}
+	} else {
+		fmt.Println("No need to sync databases")
+	}
 
 }
 
@@ -303,18 +297,17 @@ func (app *App) GetLeaderBoard(c echo.Context) error {
 	users, size = app.RedisDB.GetLeaderboard(countryCode, false)
 	is_Redis_empty := false
 	if size == -1 {
-		users, size = app.SQLDB.GetAllUser(countryCode)
+		users, _ = app.SQLDB.GetAllUser(countryCode)
 	} else {
 		if users == nil {
 			fmt.Println("fail to get from redis trying to get from sql")
-			users, size = app.SQLDB.GetAllUser(countryCode)
+			users, _ = app.SQLDB.GetAllUser(countryCode)
 			if users != nil {
 				is_Redis_empty = true
 			}
 		}
 	}
 
-	fmt.Printf("size %d", size)
 	if is_Redis_empty {
 		for _, user := range users {
 			fmt.Println("saving to redis with go keyword")
@@ -323,6 +316,9 @@ func (app *App) GetLeaderBoard(c echo.Context) error {
 	}
 
 	app.mu.Unlock()
+	if users == nil {
+		users = make([]db.User, 0)
+	}
 	return c.JSON(http.StatusOK, users)
 }
 
@@ -363,7 +359,6 @@ func (app *App) CreateUser(c echo.Context) error {
 }
 
 func (app *App) CreateMultipleUsers(c echo.Context) error {
-
 	defer c.Request().Body.Close()
 	multipleUsers := &db.MultipleUsers{}
 	if err := c.Bind(multipleUsers); err != nil {
@@ -371,14 +366,12 @@ func (app *App) CreateMultipleUsers(c echo.Context) error {
 	}
 	app.mu.Lock()
 
-	if multipleUsers.Count > 1000 {
-		fmt.Println(" multipleUsers.Count > 1000 ")
+	if multipleUsers.Count > 0 {
 		err := app.SQLDB.SaveMultipleUser(&multipleUsers.Users)
 		if err != nil {
 			log.Println("An error in save users in sql", err)
 		}
 		go func(users *[]db.User) {
-			fmt.Println(" GO FUNC ")
 			size := len(*users)
 			index := 0
 			for index < size {
@@ -445,7 +438,6 @@ func (app *App) GetUserProile(c echo.Context) error {
 }
 
 func (app *App) ScoreSubmit(c echo.Context) error {
-	fmt.Println("Score Submit")
 	score := &db.Score{}
 	defer c.Request().Body.Close()
 	err := c.Bind(score)

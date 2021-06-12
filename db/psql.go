@@ -48,7 +48,7 @@ func (db *SQLDatabase) GetAllUser(countryName string) ([]User, int) {
 	var rowCount int
 	db.Sqlmu.Lock()
 	if countryName == "" {
-		userSql := "select User_Id, Display_Name, Points, Country from (select User_Id, Display_Name, Points, Country, rank() over (order by points desc) as rank from users) t;"
+		userSql := "select * from (select User_Id, Display_Name, Points, Country, rank() over (order by points desc) as rank from users) t;"
 		var err error
 		rows, err = db.SqlClient.Query(userSql)
 		if err != nil {
@@ -58,10 +58,9 @@ func (db *SQLDatabase) GetAllUser(countryName string) ([]User, int) {
 		}
 		_ = rows
 		db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", "general").Scan(&rowCount)
-		fmt.Printf("Round count is %d", rowCount)
 
 	} else {
-		userSql := "select User_Id, Display_Name, Points, Country from (select User_Id, Display_Name, Points, Country, rank() over (order by points desc) as rank from users) t where Country = " + "'" + countryName + "';"
+		userSql := "select * from (select User_Id, Display_Name, Points, Country, rank() over (order by points desc) as rank from users) t where Country = " + "'" + countryName + "';"
 		var err error
 		rows, err = db.SqlClient.Query(userSql)
 		if err != nil {
@@ -71,7 +70,6 @@ func (db *SQLDatabase) GetAllUser(countryName string) ([]User, int) {
 		}
 		_ = rows
 		db.SqlClient.QueryRow("SELECT size FROM CountryNumberSizes WHERE code = $1", countryName).Scan(&rowCount)
-		fmt.Printf("Round count asdasdasd is %d", rowCount)
 	}
 	db.Sqlmu.Unlock()
 
@@ -101,8 +99,6 @@ func (db *SQLDatabase) GetUser(user_guid string) (User, error) {
 	var user User
 	userSql := "select User_Id, Display_Name, Points, Country from (select User_Id, Display_Name, Points, Country, rank() over (order by points desc) as rank from users) t where User_Id = " + "'" + user_guid + "';"
 
-	fmt.Printf("userSql %s\n", userSql)
-	fmt.Printf("user_guid %s\n", user_guid)
 	err := db.SqlClient.QueryRow(userSql).Scan(&user.User_Id, &user.Display_Name, &user.Points, &user.Country, &user.Rank)
 
 	if err != nil {
@@ -165,10 +161,10 @@ func (db *SQLDatabase) SaveMultipleUser(users *[]User) error {
 			db.SyncNeed = true
 			return errors.New("can't")
 		}
+
 	}
 
 	for iso_code, size := range countrySize {
-		fmt.Printf("key[%s] value[%d]\n", iso_code, size)
 
 		updateDB := `UPDATE CountryNumberSizes SET size = size + $2, timestamp = $3 WHERE code = $1;`
 		res, _ := db.SqlClient.Exec(updateDB, iso_code, size, secs)

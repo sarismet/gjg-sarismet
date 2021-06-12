@@ -40,18 +40,13 @@ func (db *RedisDatabase) GetLeaderboard(countryName string, sync bool) ([]User, 
 
 	var arraysize int = 1
 	if countryName != "" {
-		fmt.Println("Country Name is not empty")
 		countrySizeVal := db.Client.Get(Ctx, countryName).Val()
 		if countrySizeVal == "" {
-			fmt.Println("However we cannot find any size of this country")
 			db.Client.Set(Ctx, countryName, 0, 0)
 			return nil, 0
 		}
 		arraysize, _ = strconv.Atoi(countrySizeVal)
-		fmt.Printf("arraySize %d\n", arraysize)
 	} else {
-		fmt.Println("Country Name is empty")
-
 		arraysize = totalUserValSize
 	}
 
