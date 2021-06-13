@@ -41,48 +41,59 @@ func TestMain(m *testing.M) {
 	RedisDB := &db.RedisDatabase{
 		Client: newRedisClient,
 	}
-	app.RedisDB = RedisDB
-
 	const (
-		host         = "localhost"
+		host         = "0.0.0.0"
 		port         = 5432
 		databaseuser = "postgres"
 		password     = "123"
+		dbname       = "postgres"
 	)
-	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+
-		"password=%s sslmode=disable",
-		host, port, databaseuser, password)
+	mainDBconnection := fmt.Sprintf("host=%s port=%d user=%s "+
+		"password=%s dbname=%s sslmode=disable",
+		host, port, databaseuser, password, dbname)
 
-	sqldb, err := sql.Open("postgres", psqlInfo)
+	sqldb, err := sql.Open("postgres", mainDBconnection)
 	if err != nil {
 		log.Fatal(err)
 	}
 	dbName := "testdb"
 	_, err = sqldb.Exec("create database " + dbName + ";")
 	if err != nil {
-		//handle the error
 		log.Fatal(err)
 	}
-
-	SQLDB := &db.SQLDatabase{
-		SqlClient: sqldb,
-	}
-
+	testDBconnection := fmt.Sprintf("host=%s port=%d user=%s "+
+		"password=%s dbname=%s sslmode=disable",
+		host, port, databaseuser, password, dbName)
+	testdb, err := sql.Open("postgres", testDBconnection)
 	if err != nil {
-		log.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
+		log.Fatal(err)
 	}
-
+	SQLDB := &db.SQLDatabase{
+		SqlClient: testdb,
+	}
+	app.RedisDB = RedisDB
 	app.SQLDB = SQLDB
 	err = app.SQLDB.CreateTableNotExists()
 	if err != nil {
 		log.Fatalf("Error as creating Sql tables %s", err)
 	}
+
 	code := m.Run()
-	_, err = sqldb.Exec("DROP DATABASE IF EXISTS " + dbName + ";")
+	db.Redismutex.Lock()
+	app.RedisDB.Client.FlushAll(db.Ctx)
+	db.Redismutex.Unlock()
+	db.Sqlmutex.Lock()
+	app.SQLDB.SqlClient.Close()
+	db.Sqlmutex.Unlock()
+
 	if err != nil {
-		//handle the error
 		log.Fatal(err)
 	}
+	_, err = sqldb.Exec("DROP DATABASE IF EXISTS " + dbName + ";")
+	if err != nil {
+		log.Fatal(err)
+	}
+	sqldb.Close()
 	os.Exit(code)
 }
 

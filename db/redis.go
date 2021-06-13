@@ -4,25 +4,29 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/go-redis/redis"
 )
 
 type RedisDatabase struct {
-	syncNeed bool
+	SyncNeed bool
 	Client   *redis.Client
 }
 
 var (
+	Redismutex = sync.Mutex{}
+
 	Ctx = context.TODO()
 )
 
 func (db *RedisDatabase) GetLeaderboard(countryName string, sync bool) ([]User, int) {
+	Redismutex.Lock()
 	scores := db.Client.ZRevRangeWithScores(Ctx, "leaderboard", 0, -1)
 	if scores == nil {
+		Redismutex.Unlock()
 		return nil, 0
 	}
 
@@ -30,11 +34,13 @@ func (db *RedisDatabase) GetLeaderboard(countryName string, sync bool) ([]User, 
 
 	if totalUserVal == "" {
 		db.Client.Set(Ctx, "totalUserNumber", 0, 0)
+		Redismutex.Unlock()
 		return nil, 0
 	}
 	totalUserValSize, _ := strconv.Atoi(totalUserVal)
 
 	if totalUserValSize > 1000 && !sync {
+		Redismutex.Unlock()
 		return nil, -1
 	}
 
@@ -43,6 +49,7 @@ func (db *RedisDatabase) GetLeaderboard(countryName string, sync bool) ([]User, 
 		countrySizeVal := db.Client.Get(Ctx, countryName).Val()
 		if countrySizeVal == "" {
 			db.Client.Set(Ctx, countryName, 0, 0)
+			Redismutex.Unlock()
 			return nil, 0
 		}
 		arraysize, _ = strconv.Atoi(countrySizeVal)
@@ -54,7 +61,7 @@ func (db *RedisDatabase) GetLeaderboard(countryName string, sync bool) ([]User, 
 	index := 0
 	for _, member := range scores.Val() {
 
-		tempUsers, err := db.GetUser(member.Member.(string))
+		tempUsers, err := db.GetUser(member.Member.(string), true)
 		tempUsers.User_Id = ""
 		tempUsers.Timestamp = 0
 		if err == nil {
@@ -69,12 +76,16 @@ func (db *RedisDatabase) GetLeaderboard(countryName string, sync bool) ([]User, 
 			}
 		}
 	}
+	Redismutex.Unlock()
 	return users, arraysize
 }
 
 func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
+	Redismutex.Lock()
+
 	if db == nil {
-		db.syncNeed = true
+		db.SyncNeed = true
+		Redismutex.Unlock()
 		return -1, errors.New("db is nil")
 	}
 	// FROM HERE
@@ -87,6 +98,8 @@ func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
 	rank := pipe.ZRevRank(Ctx, "leaderboard", user.User_Id)
 	_, err := pipe.Exec(Ctx)
 	if err != nil {
+		db.SyncNeed = true
+		Redismutex.Unlock()
 		return 0, err
 	}
 	// TO HERE REFERENCE: https://blog.logrocket.com/how-to-use-redis-as-a-database-with-go-redis/
@@ -110,7 +123,6 @@ func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
 	db.Client.Set(Ctx, cts, secs, 0)
 	totalUserNumberSizeVal := db.Client.Get(Ctx, "totalUserNumber").Val()
 	if totalUserNumberSizeVal == "" {
-		fmt.Println("totalUserNumber ekledik")
 		db.Client.Set(Ctx, "totalUserNumber", 1, 0)
 	} else if !is_user_present {
 		size, _ := strconv.Atoi(totalUserNumberSizeVal)
@@ -121,21 +133,32 @@ func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
 
 	userJson, err := json.Marshal(user)
 	if err != nil {
-		db.syncNeed = true
+		db.SyncNeed = true
+		Redismutex.Unlock()
 		return 0, err
 	}
 	err = db.Client.Set(Ctx, user.User_Id, userJson, 0).Err()
 	if err != nil {
-		db.syncNeed = true
+		db.SyncNeed = true
+		Redismutex.Unlock()
 		return 0, err
 	}
+	Redismutex.Unlock()
 	return secs, nil
 }
 
-func (db *RedisDatabase) GetUser(user_guid string) (User, error) {
+func (db *RedisDatabase) GetUser(user_guid string, isFromGetLeaderBoard bool) (User, error) {
+
+	if !isFromGetLeaderBoard {
+		Redismutex.Lock()
+	}
 	var user User
 	val, err := db.Client.Get(Ctx, user_guid).Result()
 	if err != nil {
+		db.SyncNeed = true
+		if !isFromGetLeaderBoard {
+			Redismutex.Unlock()
+		}
 		return user, err
 	}
 	json.Unmarshal([]byte(val), &user)
@@ -143,6 +166,10 @@ func (db *RedisDatabase) GetUser(user_guid string) (User, error) {
 	rank := pipe.ZRevRank(Ctx, "leaderboard", user.User_Id)
 	_, err = pipe.Exec(Ctx)
 	if err != nil {
+		db.SyncNeed = true
+		if !isFromGetLeaderBoard {
+			Redismutex.Unlock()
+		}
 		return user, err
 	}
 	if user.Rank != int(rank.Val()) {
@@ -150,7 +177,11 @@ func (db *RedisDatabase) GetUser(user_guid string) (User, error) {
 		userJson, _ := json.Marshal(user)
 		db.Client.Set(Ctx, user.User_Id, userJson, 0)
 	}
-	user.Timestamp = 0.
+	user.Timestamp = 0.0
+	if !isFromGetLeaderBoard {
+		Redismutex.Unlock()
+	}
+
 	return user, err
 }
 

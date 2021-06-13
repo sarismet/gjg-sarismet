@@ -45,17 +45,14 @@ func TestGetLeaderBoard(t *testing.T) {
 		host, port, databaseuser, password, dbname)
 
 	sqldb, err := sql.Open("postgres", mainDBconnection)
-
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	dbName := "testdb"
 	_, err = sqldb.Exec("create database " + dbName + ";")
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	testDBconnection := fmt.Sprintf("host=%s port=%d user=%s "+
 		"password=%s dbname=%s sslmode=disable",
 		host, port, databaseuser, password, dbName)
@@ -66,7 +63,6 @@ func TestGetLeaderBoard(t *testing.T) {
 	SQLDB := &db.SQLDatabase{
 		SqlClient: testdb,
 	}
-
 	app.RedisDB = RedisDB
 	app.SQLDB = SQLDB
 	err = app.SQLDB.CreateTableNotExists()
@@ -88,7 +84,6 @@ func TestGetLeaderBoard(t *testing.T) {
 		assert.Equal(t, http.StatusCreated, rec.Code)
 		assert.Equal(t, "ismet", users[0].Display_Name)
 	}
-
 	userJSON = fmt.Sprintf(`{"score_worth":100,"user_id":"%s"}`, users[1].User_Id)
 	req = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(userJSON))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -96,11 +91,10 @@ func TestGetLeaderBoard(t *testing.T) {
 	c = e.NewContext(req, rec)
 	if assert.NoError(t, app.ScoreSubmit(c)) {
 		var responseScore db.Score
-		fmt.Println("rec.Body.Bytes() is ", rec.Body.String())
 		json.Unmarshal(rec.Body.Bytes(), &responseScore)
 		assert.Equal(t, http.StatusOK, rec.Code)
 		assert.Equal(t, responseScore.Score_worth, float64(100))
-		assert.Equal(t, responseScore.User_Id, users[0].User_Id)
+		assert.Equal(t, responseScore.User_Id, users[1].User_Id)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/", strings.NewReader(""))
@@ -111,12 +105,16 @@ func TestGetLeaderBoard(t *testing.T) {
 		var responseUsers []db.User
 		json.Unmarshal(rec.Body.Bytes(), &responseUsers)
 		assert.Equal(t, http.StatusOK, rec.Code)
-		assert.Equal(t, responseUsers[0].Display_Name, users[0].Display_Name)
-		assert.Equal(t, responseUsers[1].Display_Name, users[1].Display_Name)
+		assert.Equal(t, responseUsers[0].Display_Name, users[1].Display_Name)
+		assert.Equal(t, responseUsers[1].Display_Name, users[0].Display_Name)
 	}
-	app.SQLDB.SqlClient.Close()
 
-	sqldb, err = sql.Open("postgres", mainDBconnection)
+	db.Redismutex.Lock()
+	app.RedisDB.Client.FlushAll(db.Ctx)
+	db.Redismutex.Unlock()
+	db.Sqlmutex.Lock()
+	app.SQLDB.SqlClient.Close()
+	db.Sqlmutex.Unlock()
 
 	if err != nil {
 		log.Fatal(err)
@@ -125,4 +123,5 @@ func TestGetLeaderBoard(t *testing.T) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	sqldb.Close()
 }

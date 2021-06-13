@@ -1,14 +1,13 @@
 package endpoints
 
 import (
-	"context"
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/gjg-sarismet/db"
@@ -18,20 +17,14 @@ import (
 	"github.com/lib/pq"
 )
 
-var (
-	Ctx = context.TODO()
-)
-
 type App struct {
-	mu         sync.Mutex // we can define this in redis struct as well
-	RedisDB    *db.RedisDatabase
-	SQLDB      *db.SQLDatabase
-	syncNeeded bool // we can also define this in redis struct as well
+	RedisDB *db.RedisDatabase
+	SQLDB   *db.SQLDatabase
 }
 
 func (app *App) Checking(l *pq.Listener) {
 	fmt.Println("I am checking wheter sync is needed")
-	if app.syncNeeded && !app.SQLDB.SyncNeed {
+	if app.RedisDB.SyncNeed && !app.SQLDB.SyncNeed {
 		fmt.Println("Sql is right but Redis is not right")
 		isSuccess := true // we define this since if there is an error
 		// we do not return since we want to continue sync as much as we can
@@ -79,7 +72,7 @@ func (app *App) Checking(l *pq.Listener) {
 				fmt.Printf("failed due to %s ... \n", err.Error())
 				isSuccess = false
 			}
-			err = app.RedisDB.Client.Set(Ctx, users[index].User_Id, userJson, 0).Err()
+			err = app.RedisDB.Client.Set(db.Ctx, users[index].User_Id, userJson, 0).Err()
 			if err != nil {
 				fmt.Printf("failed due to %s ... \n", err.Error())
 				isSuccess = false
@@ -89,14 +82,14 @@ func (app *App) Checking(l *pq.Listener) {
 		var totalCountryCount int = 0
 		for countryName, countryCount := range countryRowCounts {
 			totalCountryCount += countryCount
-			app.RedisDB.Client.Set(Ctx, countryName, countryCount, 0)
+			app.RedisDB.Client.Set(db.Ctx, countryName, countryCount, 0)
 		}
-		app.RedisDB.Client.Set(Ctx, "totalUserNumber", totalCountryCount, 0)
+		app.RedisDB.Client.Set(db.Ctx, "totalUserNumber", totalCountryCount, 0)
 		if isSuccess {
-			app.syncNeeded = false
+			app.RedisDB.SyncNeed = false
 		}
 
-	} else if !app.syncNeeded && app.SQLDB.SyncNeed {
+	} else if !app.RedisDB.SyncNeed && app.SQLDB.SyncNeed {
 		fmt.Println("Sql is not right but Redis is right")
 		isSuccess := true
 		users, _ := app.RedisDB.GetLeaderboard("", true)
@@ -123,7 +116,7 @@ func (app *App) Checking(l *pq.Listener) {
 			totalCountryCount += countryCount
 			cts := countryName + "_timestamp"
 
-			secs, _ := strconv.Atoi(app.RedisDB.Client.Get(Ctx, cts).Val())
+			secs, _ := strconv.Atoi(app.RedisDB.Client.Get(db.Ctx, cts).Val())
 			updateCountryCount := `UPDATE CountryNumberSizes SET size = $3, timestamp = $2 WHERE code = $1;`
 			res2, _ := app.SQLDB.SqlClient.Exec(updateCountryCount, countryName, secs, countryCount)
 			if res2 != nil {
@@ -137,7 +130,7 @@ func (app *App) Checking(l *pq.Listener) {
 				}
 			}
 		}
-		tsecs, _ := strconv.Atoi(app.RedisDB.Client.Get(Ctx, "totalUserNumber_timestamp").Val())
+		tsecs, _ := strconv.Atoi(app.RedisDB.Client.Get(db.Ctx, "totalUserNumber_timestamp").Val())
 		updateGeneralCount := `UPDATE CountryNumberSizes SET size = $3, timestamp = $2 WHERE code = $1;`
 		res3, _ := app.SQLDB.SqlClient.Exec(updateGeneralCount, "general", tsecs, totalCountryCount)
 		if res3 != nil {
@@ -153,12 +146,12 @@ func (app *App) Checking(l *pq.Listener) {
 		if isSuccess {
 			app.SQLDB.SyncNeed = false
 		}
-	} else if app.syncNeeded && app.SQLDB.SyncNeed {
+	} else if app.RedisDB.SyncNeed && app.SQLDB.SyncNeed {
 		fmt.Println("Both Sql and Redis are not right")
 		var users map[string]db.User = make(map[string]db.User)
 		redisUsers, sizeRedis := app.RedisDB.GetLeaderboard("", true)
 		sqlUsers, sizeSql := app.SQLDB.GetAllUser("")
-
+		isSuccess := true
 		index := 0
 		commonSize := 0
 		if sizeRedis <= sizeSql {
@@ -211,6 +204,10 @@ func (app *App) Checking(l *pq.Listener) {
 				}
 			}
 		}
+		if isSuccess {
+			app.SQLDB.SyncNeed = false
+			app.RedisDB.SyncNeed = false
+		}
 	} else {
 		fmt.Println("No need to sync databases")
 	}
@@ -219,11 +216,11 @@ func (app *App) Checking(l *pq.Listener) {
 
 func (app *App) Sync(l *pq.Listener) {
 	for {
-		app.SQLDB.Sqlmu.Lock()
-		app.mu.Lock()
+		db.Redismutex.Lock()
+		db.Sqlmutex.Lock()
 		app.Checking(l)
-		app.mu.Unlock()
-		app.SQLDB.Sqlmu.Unlock()
+		db.Sqlmutex.Unlock()
+		db.Redismutex.Unlock()
 		time.Sleep(30 * time.Second)
 	}
 }
@@ -235,9 +232,9 @@ func Init() {
 	if err != nil || RedisDB == nil {
 		log.Fatal("Error as conencting to Redis")
 	}
-	size := RedisDB.Client.Get(Ctx, "size")
+	size := RedisDB.Client.Get(db.Ctx, "size")
 	if size.Val() == "" {
-		RedisDB.Client.Set(Ctx, "leaderboardsize", 0, 0)
+		RedisDB.Client.Set(db.Ctx, "leaderboardsize", 0, 0)
 	}
 	SQLDB, psqlInfo, err := db.NewSqlDatabase()
 	if err != nil {
@@ -248,8 +245,6 @@ func Init() {
 	if err != nil {
 		log.Fatalln("Error as creating Sql tables", err)
 	}
-
-	app.syncNeeded = false
 
 	reportProblem := func(et pq.ListenerEventType, err error) {
 		if err != nil {
@@ -293,7 +288,6 @@ func (app *App) GetLeaderBoard(c echo.Context) error {
 	}
 	var users []db.User
 	var size int
-	app.mu.Lock()
 	users, size = app.RedisDB.GetLeaderboard(countryCode, false)
 	is_Redis_empty := false
 	if size == -1 {
@@ -314,8 +308,6 @@ func (app *App) GetLeaderBoard(c echo.Context) error {
 			go app.RedisDB.SaveUser(&user)
 		}
 	}
-
-	app.mu.Unlock()
 	if users == nil {
 		users = make([]db.User, 0)
 	}
@@ -333,18 +325,15 @@ func (app *App) CreateUser(c echo.Context) error {
 	user.User_Id = uuid.New().String()
 	user.Points = 0
 	user.Rank = -1
-	app.mu.Lock()
+
 	_, err = app.RedisDB.SaveUser(user)
 	country := user.Country
 	if err != nil {
-
 		log.Printf("An error in save user has occurred %s tring to save on sql \n", err)
 		sqlerr := app.SQLDB.SaveUser(user, country)
 		if sqlerr != nil {
-			app.mu.Unlock()
 			return c.String(http.StatusInternalServerError, "An error comes up as saving user in both database!")
 		}
-		app.syncNeeded = true
 		log.Println("An error comes up as saving user in redis but stored in sql!")
 	} else {
 		// here we use go since we managed to save user in redis and we can keep going without waiting for sql to be saved
@@ -354,7 +343,6 @@ func (app *App) CreateUser(c echo.Context) error {
 	//the order would be aphetically and in project pdf response fields is not ordered aphetically
 	user.Country = ""
 	user.Timestamp = 0
-	app.mu.Unlock()
 	return c.JSON(http.StatusCreated, user)
 }
 
@@ -364,28 +352,22 @@ func (app *App) CreateMultipleUsers(c echo.Context) error {
 	if err := c.Bind(multipleUsers); err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
-	app.mu.Lock()
 
-	if multipleUsers.Count > 0 {
+	if multipleUsers.Count > 100 {
 		err := app.SQLDB.SaveMultipleUser(&multipleUsers.Users)
 		if err != nil {
 			log.Println("An error in save users in sql", err)
 		}
-		go func(users *[]db.User) {
-			size := len(*users)
-			index := 0
-			for index < size {
-				multipleUsers.Users[index].User_Id = uuid.New().String()
-				multipleUsers.Users[index].Points = 0
-				multipleUsers.Users[index].Rank = -1
-				_, err := app.RedisDB.SaveUser(&multipleUsers.Users[index])
+		go func(users []db.User) {
+			for index, user := range multipleUsers.Users {
+				user.Points = 0
+				_, err := app.RedisDB.SaveUser(&user)
 				if err != nil {
 					log.Printf("An error in save user has occurred %s tring to make syncNeeded true \n", err)
-					app.syncNeeded = true
 				}
 				index++
 			}
-		}(&multipleUsers.Users)
+		}(multipleUsers.Users)
 	} else {
 		for index := range multipleUsers.Users {
 			multipleUsers.Users[index].User_Id = uuid.New().String()
@@ -398,11 +380,9 @@ func (app *App) CreateMultipleUsers(c echo.Context) error {
 				log.Printf("An error in save user has occurred %s tring to save on sql \n", err)
 				sqlerr := app.SQLDB.SaveUser(&multipleUsers.Users[index], country)
 				if sqlerr != nil {
-					app.mu.Unlock()
 					return c.String(http.StatusInternalServerError, "An error comes up as saving user in both database!")
 				}
 				log.Println("An error comes up as saving user in redis but stored in sql!")
-				app.syncNeeded = true
 			} else {
 				go app.SQLDB.SaveUser(&multipleUsers.Users[index], country)
 			}
@@ -411,7 +391,6 @@ func (app *App) CreateMultipleUsers(c echo.Context) error {
 		}
 	}
 
-	app.mu.Unlock()
 	return c.JSON(http.StatusCreated, multipleUsers.Users)
 }
 
@@ -419,21 +398,17 @@ func (app *App) GetUserProile(c echo.Context) error {
 
 	user_guid := c.Param("user_guid")
 	user_guid = user_guid[1:]
-	app.mu.Lock()
-	user, err := app.RedisDB.GetUser(user_guid)
+	user, err := app.RedisDB.GetUser(user_guid, false)
 	if err != nil {
 		fmt.Printf("Error as getting user from Redis %s", err)
 		user, err = app.SQLDB.GetUser(user_guid)
 		if err != nil {
 			fmt.Printf("Error as getting user from SQL %s", err)
 			errs := fmt.Sprintf("Error as getting user from SQL %s", err.Error())
-			app.mu.Unlock()
 			return c.String(http.StatusNotFound, errs)
 		}
 		app.RedisDB.SaveUser(&user)
 	}
-	app.mu.Unlock()
-	user.User_Id = ""
 	return c.JSON(http.StatusOK, user)
 }
 
@@ -444,8 +419,13 @@ func (app *App) ScoreSubmit(c echo.Context) error {
 	if err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
-	app.mu.Lock()
-	user, _ := app.RedisDB.GetUser(score.User_Id)
+
+	user, getErr := app.RedisDB.GetUser(score.User_Id, false)
+	if getErr != nil {
+		return c.String(http.StatusInternalServerError, "cannot get the related user from Cache")
+	}
+	var buffer bytes.Buffer
+	json.NewEncoder(&buffer).Encode(&user)
 	user.Points = user.Points + score.Score_worth
 	score.Score_worth = user.Points
 	score.Timestamp, err = app.RedisDB.SaveUser(&user)
@@ -453,16 +433,12 @@ func (app *App) ScoreSubmit(c echo.Context) error {
 		fmt.Println("error as saving to redis ", err)
 		err = app.SQLDB.SubmitScore(score.User_Id, score.Score_worth)
 		if err != nil {
-			app.mu.Unlock()
 			return c.String(http.StatusBadRequest, "error as submiting score in both redis and sql")
 		}
-		app.syncNeeded = true
-		app.mu.Unlock()
 		return c.String(http.StatusOK, "error as submiting score in redis")
 	} else {
 		go app.SQLDB.SubmitScore(score.User_Id, score.Score_worth)
 	}
-	app.mu.Unlock()
 	return c.JSON(http.StatusOK, score)
 }
 
@@ -472,9 +448,8 @@ func (app *App) ScoreSubmitMultiple(c echo.Context) error {
 	if err := c.Bind(multipleScores); err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
-	app.mu.Lock()
 	for index := range multipleScores.Scores {
-		user, _ := app.RedisDB.GetUser(multipleScores.Scores[index].User_Id)
+		user, _ := app.RedisDB.GetUser(multipleScores.Scores[index].User_Id, false)
 		user.Points = user.Points + multipleScores.Scores[index].Score_worth
 		multipleScores.Scores[index].Score_worth = user.Points
 		timestamp, err := app.RedisDB.SaveUser(&user)
@@ -482,14 +457,11 @@ func (app *App) ScoreSubmitMultiple(c echo.Context) error {
 		if err != nil {
 			err = app.SQLDB.SubmitScore(multipleScores.Scores[index].User_Id, multipleScores.Scores[index].Score_worth)
 			if err != nil {
-				app.mu.Unlock()
 				return c.String(http.StatusBadRequest, "error as submiting score in both redis and sql")
 			}
-			app.syncNeeded = true
 		} else {
 			go app.SQLDB.SubmitScore(multipleScores.Scores[index].User_Id, multipleScores.Scores[index].Score_worth)
 		}
 	}
-	app.mu.Unlock()
 	return c.JSON(http.StatusOK, multipleScores.Scores)
 }

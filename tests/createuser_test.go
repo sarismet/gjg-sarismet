@@ -36,18 +36,17 @@ func TestCreateUser(t *testing.T) {
 		Client: newRedisClient,
 	}
 	const (
-		host         = "localhost"
+		host         = "0.0.0.0"
 		port         = 5432
 		databaseuser = "postgres"
 		password     = "123"
+		dbname       = "postgres"
 	)
+	mainDBconnection := fmt.Sprintf("host=%s port=%d user=%s "+
+		"password=%s dbname=%s sslmode=disable",
+		host, port, databaseuser, password, dbname)
 
-	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+
-		"password=%s sslmode=disable",
-		host, port, databaseuser, password)
-
-	sqldb, err := sql.Open("postgres", psqlInfo)
-
+	sqldb, err := sql.Open("postgres", mainDBconnection)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -55,14 +54,18 @@ func TestCreateUser(t *testing.T) {
 	dbName := "testdb"
 	_, err = sqldb.Exec("create database " + dbName + ";")
 	if err != nil {
-		//handle the error
 		log.Fatal(err)
 	}
-
-	SQLDB := &db.SQLDatabase{
-		SqlClient: sqldb,
+	testDBconnection := fmt.Sprintf("host=%s port=%d user=%s "+
+		"password=%s dbname=%s sslmode=disable",
+		host, port, databaseuser, password, dbName)
+	testdb, err := sql.Open("postgres", testDBconnection)
+	if err != nil {
+		log.Fatal(err)
 	}
-
+	SQLDB := &db.SQLDatabase{
+		SqlClient: testdb,
+	}
 	app.RedisDB = RedisDB
 	app.SQLDB = SQLDB
 	err = app.SQLDB.CreateTableNotExists()
@@ -85,10 +88,19 @@ func TestCreateUser(t *testing.T) {
 		assert.Equal(t, http.StatusCreated, rec.Code)
 		assert.Equal(t, "Snow", user.Display_Name)
 	}
+	db.Redismutex.Lock()
+	app.RedisDB.Client.FlushAll(db.Ctx)
+	db.Redismutex.Unlock()
+	db.Sqlmutex.Lock()
+	app.SQLDB.SqlClient.Close()
+	db.Sqlmutex.Unlock()
 
-	_, err = sqldb.Exec("DROP DATABASE IF EXISTS " + dbName + ";")
 	if err != nil {
-		//handle the error
 		log.Fatal(err)
 	}
+	_, err = sqldb.Exec("DROP DATABASE IF EXISTS " + dbName + ";")
+	if err != nil {
+		log.Fatal(err)
+	}
+	sqldb.Close()
 }

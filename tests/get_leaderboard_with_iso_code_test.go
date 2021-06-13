@@ -34,40 +34,41 @@ func TestGetLeaderBoardWithCountryIsoCode(t *testing.T) {
 		Client: newRedisClient,
 	}
 	const (
-		host         = "localhost"
+		host         = "0.0.0.0"
 		port         = 5432
 		databaseuser = "postgres"
 		password     = "123"
+		dbname       = "postgres"
 	)
+	mainDBconnection := fmt.Sprintf("host=%s port=%d user=%s "+
+		"password=%s dbname=%s sslmode=disable",
+		host, port, databaseuser, password, dbname)
 
-	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+
-		"password=%s sslmode=disable",
-		host, port, databaseuser, password)
-
-	sqldb, err := sql.Open("postgres", psqlInfo)
-
+	sqldb, err := sql.Open("postgres", mainDBconnection)
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	dbName := "testdb"
 	_, err = sqldb.Exec("create database " + dbName + ";")
 	if err != nil {
-		//handle the error
 		log.Fatal(err)
 	}
-
-	SQLDB := &db.SQLDatabase{
-		SqlClient: sqldb,
+	testDBconnection := fmt.Sprintf("host=%s port=%d user=%s "+
+		"password=%s dbname=%s sslmode=disable",
+		host, port, databaseuser, password, dbName)
+	testdb, err := sql.Open("postgres", testDBconnection)
+	if err != nil {
+		log.Fatal(err)
 	}
-
+	SQLDB := &db.SQLDatabase{
+		SqlClient: testdb,
+	}
 	app.RedisDB = RedisDB
 	app.SQLDB = SQLDB
 	err = app.SQLDB.CreateTableNotExists()
 	if err != nil {
 		log.Fatalf("Error as creating Sql tables %s", err)
 	}
-
 	e := echo.New()
 
 	var users []*db.User
@@ -109,10 +110,19 @@ func TestGetLeaderBoardWithCountryIsoCode(t *testing.T) {
 		assert.Equal(t, responseUsers[0].Display_Name, users[2].Display_Name)
 		assert.Equal(t, responseUsers[1].Display_Name, users[0].Display_Name)
 	}
+	db.Redismutex.Lock()
+	app.RedisDB.Client.FlushAll(db.Ctx)
+	db.Redismutex.Unlock()
+	db.Sqlmutex.Lock()
+	app.SQLDB.SqlClient.Close()
+	db.Sqlmutex.Unlock()
 
-	_, err = sqldb.Exec("DROP DATABASE IF EXISTS " + dbName + ";")
 	if err != nil {
-		//handle the error
 		log.Fatal(err)
 	}
+	_, err = sqldb.Exec("DROP DATABASE IF EXISTS " + dbName + ";")
+	if err != nil {
+		log.Fatal(err)
+	}
+	sqldb.Close()
 }
