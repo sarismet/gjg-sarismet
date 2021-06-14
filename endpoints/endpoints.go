@@ -353,7 +353,7 @@ func (app *App) CreateMultipleUsers(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
 
-	if multipleUsers.Count > 100 {
+	if multipleUsers.Count > 1000 {
 		err := app.SQLDB.SaveMultipleUser(&multipleUsers.Users)
 		if err != nil {
 			log.Println("An error in save users in sql", err)
@@ -369,6 +369,8 @@ func (app *App) CreateMultipleUsers(c echo.Context) error {
 			}
 		}(multipleUsers.Users)
 	} else {
+		usersToSaveSql := make([]db.User, multipleUsers.Count)
+		indexToIngore := 0
 		for index := range multipleUsers.Users {
 			multipleUsers.Users[index].User_Id = uuid.New().String()
 			multipleUsers.Users[index].Points = 0
@@ -382,13 +384,17 @@ func (app *App) CreateMultipleUsers(c echo.Context) error {
 				if sqlerr != nil {
 					return c.String(http.StatusInternalServerError, "An error comes up as saving user in both database!")
 				}
+				indexToIngore++
 				log.Println("An error comes up as saving user in redis but stored in sql!")
 			} else {
-				go app.SQLDB.SaveUser(&multipleUsers.Users[index], country)
+				usersToSaveSql[index] = multipleUsers.Users[index]
 			}
+
 			multipleUsers.Users[index].Country = ""
 			multipleUsers.Users[index].Timestamp = 0
 		}
+		usersToSaveSql = usersToSaveSql[:len(usersToSaveSql)-indexToIngore]
+		go app.SQLDB.SaveMultipleUser(&usersToSaveSql)
 	}
 
 	return c.JSON(http.StatusCreated, multipleUsers.Users)
