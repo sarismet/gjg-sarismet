@@ -275,7 +275,7 @@ func Init(sync_wanted bool, sync_interval int) {
 	e.POST("/score/submit", app.ScoreSubmit)
 	e.POST("/score/submit_multiple", app.ScoreSubmitMultiple)
 
-	e.Start("localhost:8000")
+	e.Start(":8000")
 }
 
 func (app *App) Hello(c echo.Context) error {
