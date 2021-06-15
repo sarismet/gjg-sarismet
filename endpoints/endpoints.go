@@ -50,7 +50,7 @@ func (app *App) Checking(l *pq.Listener) {
 		var countryRowCounts map[string]int = make(map[string]int)
 		index := 0
 		for rows.Next() {
-			err := rows.Scan(&users[index].User_Id, &users[index].Display_Name, &users[index].Points, &users[index].Country, &users[index].Rank)
+			err := rows.Scan(&users[index].User_Id, &users[index].Display_Name, &users[index].Points, &users[index].Country, &users[index].Timestamp, &users[index].Rank)
 			if err != nil {
 				fmt.Println("Failed to execute query: ", err)
 			}
@@ -214,18 +214,18 @@ func (app *App) Checking(l *pq.Listener) {
 
 }
 
-func (app *App) Sync(l *pq.Listener) {
+func (app *App) Sync(l *pq.Listener, interval int) {
 	for {
 		db.Redismutex.Lock()
 		db.Sqlmutex.Lock()
 		app.Checking(l)
 		db.Sqlmutex.Unlock()
 		db.Redismutex.Unlock()
-		time.Sleep(30 * time.Second)
+		time.Sleep(time.Duration(interval) * time.Second)
 	}
 }
 
-func Init() {
+func Init(sync_wanted bool, sync_interval int) {
 	var err error
 	app := App{}
 	RedisDB, err := db.NewRedisDatabase()
@@ -246,15 +246,17 @@ func Init() {
 		log.Fatalln("Error as creating Sql tables", err)
 	}
 
-	reportProblem := func(et pq.ListenerEventType, err error) {
-		if err != nil {
-			fmt.Println(err)
+	if sync_wanted {
+		reportProblem := func(et pq.ListenerEventType, err error) {
+			if err != nil {
+				fmt.Println(err)
+			}
 		}
+
+		listener := pq.NewListener(psqlInfo, 1*time.Second, 2*time.Minute, reportProblem)
+
+		go app.Sync(listener, sync_interval)
 	}
-
-	listener := pq.NewListener(psqlInfo, 1*time.Second, 2*time.Minute, reportProblem)
-
-	go app.Sync(listener)
 
 	app.RedisDB = RedisDB
 	app.SQLDB = SQLDB
@@ -273,7 +275,7 @@ func Init() {
 	e.POST("/score/submit", app.ScoreSubmit)
 	e.POST("/score/submit_multiple", app.ScoreSubmitMultiple)
 
-	e.Start(":8000")
+	e.Start("localhost:8000")
 }
 
 func (app *App) Hello(c echo.Context) error {
@@ -325,7 +327,9 @@ func (app *App) CreateUser(c echo.Context) error {
 	user.User_Id = uuid.New().String()
 	user.Points = 0
 	user.Rank = -1
-
+	now := time.Now()
+	secs := now.Unix()
+	user.Timestamp = secs
 	_, err = app.RedisDB.SaveUser(user)
 	country := user.Country
 	if err != nil {
@@ -336,8 +340,9 @@ func (app *App) CreateUser(c echo.Context) error {
 		}
 		log.Println("An error comes up as saving user in redis but stored in sql!")
 	} else {
+		sqlUser := *user
 		// here we use go since we managed to save user in redis and we can keep going without waiting for sql to be saved
-		go app.SQLDB.SaveUser(user, country)
+		go app.SQLDB.SaveUser(&sqlUser, country)
 	}
 	//this is done since we do not show the country iso code of user in response. We can use string interface as response but
 	//the order would be aphetically and in project pdf response fields is not ordered aphetically
@@ -354,7 +359,7 @@ func (app *App) CreateMultipleUsers(c echo.Context) error {
 	}
 
 	if multipleUsers.Count > 1000 {
-		err := app.SQLDB.SaveMultipleUser(&multipleUsers.Users)
+		err := app.SQLDB.SaveMultipleUser(&multipleUsers.Users, false)
 		if err != nil {
 			log.Println("An error in save users in sql", err)
 		}
@@ -375,7 +380,9 @@ func (app *App) CreateMultipleUsers(c echo.Context) error {
 			multipleUsers.Users[index].User_Id = uuid.New().String()
 			multipleUsers.Users[index].Points = 0
 			multipleUsers.Users[index].Rank = -1
-
+			now := time.Now()
+			secs := now.Unix()
+			multipleUsers.Users[index].Timestamp = secs
 			_, err := app.RedisDB.SaveUser(&multipleUsers.Users[index])
 			country := multipleUsers.Users[index].Country
 			if err != nil {
@@ -389,12 +396,11 @@ func (app *App) CreateMultipleUsers(c echo.Context) error {
 			} else {
 				usersToSaveSql[index] = multipleUsers.Users[index]
 			}
-
 			multipleUsers.Users[index].Country = ""
-			multipleUsers.Users[index].Timestamp = 0
+			//multipleUsers.Users[index].Timestamp = 0
 		}
 		usersToSaveSql = usersToSaveSql[:len(usersToSaveSql)-indexToIngore]
-		go app.SQLDB.SaveMultipleUser(&usersToSaveSql)
+		go app.SQLDB.SaveMultipleUser(&usersToSaveSql, true)
 	}
 
 	return c.JSON(http.StatusCreated, multipleUsers.Users)
@@ -409,9 +415,8 @@ func (app *App) GetUserProile(c echo.Context) error {
 		fmt.Printf("Error as getting user from Redis %s", err)
 		user, err = app.SQLDB.GetUser(user_guid)
 		if err != nil {
-			fmt.Printf("Error as getting user from SQL %s", err)
-			errs := fmt.Sprintf("Error as getting user from SQL %s", err.Error())
-			return c.String(http.StatusNotFound, errs)
+			fmt.Printf("Error as getting user from both Redis and SQL %s", err)
+			return c.String(http.StatusNotFound, "the user with that user-id is not found in both sql and redis")
 		}
 		app.RedisDB.SaveUser(&user)
 	}
@@ -422,14 +427,23 @@ func (app *App) ScoreSubmit(c echo.Context) error {
 	score := &db.Score{}
 	defer c.Request().Body.Close()
 	err := c.Bind(score)
+
 	if err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
 
 	user, getErr := app.RedisDB.GetUser(score.User_Id, false)
 	if getErr != nil {
-		return c.String(http.StatusInternalServerError, "cannot get the related user from Cache")
+		fmt.Println("cannot get the related user from Cache")
+		user, getErr = app.SQLDB.GetUser(score.User_Id)
+		if getErr != nil {
+			return c.String(http.StatusInternalServerError, "cannot get the related user from both Cache and Sql")
+		}
 	}
+
+	now := time.Now()
+	secs := now.Unix()
+	user.Timestamp = secs
 	var buffer bytes.Buffer
 	json.NewEncoder(&buffer).Encode(&user)
 	user.Points = user.Points + score.Score_worth
@@ -437,13 +451,13 @@ func (app *App) ScoreSubmit(c echo.Context) error {
 	score.Timestamp, err = app.RedisDB.SaveUser(&user)
 	if err != nil {
 		fmt.Println("error as saving to redis ", err)
-		err = app.SQLDB.SubmitScore(score.User_Id, score.Score_worth)
+		err = app.SQLDB.SubmitScore(score.User_Id, score.Score_worth, secs)
 		if err != nil {
 			return c.String(http.StatusBadRequest, "error as submiting score in both redis and sql")
 		}
 		return c.String(http.StatusOK, "error as submiting score in redis")
 	} else {
-		go app.SQLDB.SubmitScore(score.User_Id, score.Score_worth)
+		go app.SQLDB.SubmitScore(score.User_Id, score.Score_worth, secs)
 	}
 	return c.JSON(http.StatusOK, score)
 }
@@ -454,20 +468,33 @@ func (app *App) ScoreSubmitMultiple(c echo.Context) error {
 	if err := c.Bind(multipleScores); err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
+
 	for index := range multipleScores.Scores {
-		user, _ := app.RedisDB.GetUser(multipleScores.Scores[index].User_Id, false)
+		user, getErr := app.RedisDB.GetUser(multipleScores.Scores[index].User_Id, false)
+
+		if getErr != nil {
+			user, getErr = app.SQLDB.GetUser(multipleScores.Scores[index].User_Id)
+			if getErr != nil {
+				fmt.Println("cannot get the related user from both Cache and Sql, we continue processing")
+				continue
+			}
+		}
 		user.Points = user.Points + multipleScores.Scores[index].Score_worth
 		multipleScores.Scores[index].Score_worth = user.Points
-		timestamp, err := app.RedisDB.SaveUser(&user)
-		multipleScores.Scores[index].Timestamp = timestamp
+		now := time.Now()
+		secs := now.Unix()
+		user.Timestamp = secs
+		_, err := app.RedisDB.SaveUser(&user)
+		multipleScores.Scores[index].Timestamp = secs
 		if err != nil {
-			err = app.SQLDB.SubmitScore(multipleScores.Scores[index].User_Id, multipleScores.Scores[index].Score_worth)
+			err = app.SQLDB.SubmitScore(multipleScores.Scores[index].User_Id, multipleScores.Scores[index].Score_worth, user.Timestamp)
 			if err != nil {
 				return c.String(http.StatusBadRequest, "error as submiting score in both redis and sql")
 			}
 		} else {
-			go app.SQLDB.SubmitScore(multipleScores.Scores[index].User_Id, multipleScores.Scores[index].Score_worth)
+			go app.SQLDB.SubmitScore(multipleScores.Scores[index].User_Id, multipleScores.Scores[index].Score_worth, user.Timestamp)
 		}
+
 	}
 	return c.JSON(http.StatusOK, multipleScores.Scores)
 }

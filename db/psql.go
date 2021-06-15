@@ -112,21 +112,28 @@ func (db *SQLDatabase) GetUser(user_guid string) (User, error) {
 	return user, err
 }
 
-func (db *SQLDatabase) SaveMultipleUser(users *[]User) error {
+func (db *SQLDatabase) SaveMultipleUser(users *[]User, is_init bool) error {
 	Sqlmutex.Lock()
-	now := time.Now()
-	secs := now.Unix()
+
+	var update_secs int64
+	if !is_init {
+		now := time.Now()
+		update_secs = now.Unix()
+	} else {
+		update_secs = (*users)[len(*users)-1].Timestamp
+	}
+
 	var countrySize map[string]int = make(map[string]int)
 	size := len(*users)
 	updateGeneralDB := `UPDATE CountryNumberSizes SET size = size + $2, timestamp = $3 WHERE code = $1;`
-	res2, _ := db.SqlClient.Exec(updateGeneralDB, "general", size, secs)
+	res2, _ := db.SqlClient.Exec(updateGeneralDB, "general", size, update_secs)
 	var generalNo int = 0
 	seed := 0
 	if res2 != nil {
 		affectedrows, _ := res2.RowsAffected()
 		if affectedrows == 0 {
 			insertCountryNumberDB := `INSERT INTO CountryNumberSizes (code, size, timestamp) values($1, $2, $3);`
-			_, err := db.SqlClient.Exec(insertCountryNumberDB, "general", size, secs)
+			_, err := db.SqlClient.Exec(insertCountryNumberDB, "general", size, update_secs)
 			if err != nil {
 				Sqlmutex.Unlock()
 				db.SyncNeed = true
@@ -141,25 +148,40 @@ func (db *SQLDatabase) SaveMultipleUser(users *[]User) error {
 
 	index := 0
 	insertDB := "INSERT INTO  Users (User_Id, Display_Name, Points, Country, Timestamp) values "
-
 	for index < size-1 {
 		country := (*users)[index].Country
-		uuidString := uuid.New().String()
-		(*users)[index].User_Id = uuidString
-		insertDB += fmt.Sprintf("('%s', '%s', %f, '%s', '%d'),", uuidString, (*users)[index].Display_Name, 0.0, country, secs)
+
+		if !is_init {
+			uuidString := uuid.New().String()
+			(*users)[index].User_Id = uuidString
+			now := time.Now()
+			(*users)[index].Timestamp = now.Unix()
+		}
+
+		insertDB += fmt.Sprintf("('%s', '%s', %f, '%s', '%d'),", (*users)[index].User_Id, (*users)[index].Display_Name, 0.0, country, (*users)[index].Timestamp)
 		countrySize[country] += 1
-		(*users)[index].Timestamp = 0
+
 		(*users)[index].Rank = generalNo - (size - seed) + index
+
+		if is_init {
+			(*users)[index].Timestamp = 0
+		}
 		index++
 	}
 
 	country := (*users)[size-1].Country
-	uuidString := uuid.New().String()
-	(*users)[index].User_Id = uuidString
-	insertDB += fmt.Sprintf("('%s', '%s', %f, '%s', '%d')", uuidString, (*users)[size-1].Display_Name, 0.0, country, secs)
+	if !is_init {
+		uuidString := uuid.New().String()
+		(*users)[index].User_Id = uuidString
+		now := time.Now()
+		(*users)[size-1].Timestamp = now.Unix()
+	}
+	insertDB += fmt.Sprintf("('%s', '%s', %f, '%s', '%d')", (*users)[index].User_Id, (*users)[size-1].Display_Name, 0.0, country, (*users)[size-1].Timestamp)
 	countrySize[country] += 1
 	(*users)[size-1].Rank = generalNo - (size - seed) + index
-	(*users)[size-1].Timestamp = 0
+	if is_init {
+		(*users)[index].Timestamp = 0
+	}
 
 	insertDB = insertDB + ";"
 	res3, _ := db.SqlClient.Exec(insertDB)
@@ -177,13 +199,13 @@ func (db *SQLDatabase) SaveMultipleUser(users *[]User) error {
 	for iso_code, size := range countrySize {
 
 		updateDB := `UPDATE CountryNumberSizes SET size = size + $2, timestamp = $3 WHERE code = $1;`
-		res, _ := db.SqlClient.Exec(updateDB, iso_code, size, secs)
+		res, _ := db.SqlClient.Exec(updateDB, iso_code, size, update_secs)
 
 		if res != nil {
 			affectedrows, _ := res.RowsAffected()
 			if affectedrows == 0 {
 				insertCountryNumberDB := `INSERT INTO CountryNumberSizes (code, size, timestamp) values($1, $2, $3);`
-				_, err := db.SqlClient.Exec(insertCountryNumberDB, iso_code, size, secs)
+				_, err := db.SqlClient.Exec(insertCountryNumberDB, iso_code, size, update_secs)
 				if err != nil {
 					Sqlmutex.Unlock()
 					db.SyncNeed = true
@@ -199,8 +221,8 @@ func (db *SQLDatabase) SaveMultipleUser(users *[]User) error {
 
 func (db *SQLDatabase) SaveUser(user *User, country string) error {
 	Sqlmutex.Lock()
-	now := time.Now()
-	secs := now.Unix()
+
+	secs := user.Timestamp
 	updateDB := `UPDATE CountryNumberSizes SET size = size + 1, timestamp = $2 WHERE code = $1;`
 	res, _ := db.SqlClient.Exec(updateDB, country, secs)
 
@@ -225,8 +247,8 @@ func (db *SQLDatabase) SaveUser(user *User, country string) error {
 			insertCountryNumberDB := `INSERT INTO CountryNumberSizes (code, size, timestamp) values($1, $2, $3);`
 			_, err := db.SqlClient.Exec(insertCountryNumberDB, "general", 1, secs)
 			if err != nil {
-				Sqlmutex.Unlock()
 				db.SyncNeed = true
+				Sqlmutex.Unlock()
 				return err
 			}
 		} else {
@@ -240,8 +262,8 @@ func (db *SQLDatabase) SaveUser(user *User, country string) error {
 	if res3 != nil {
 		affectedrows, _ := res3.RowsAffected()
 		if affectedrows == 0 {
-			Sqlmutex.Unlock()
 			db.SyncNeed = true
+			Sqlmutex.Unlock()
 			return errors.New("can't")
 		}
 	}
@@ -251,16 +273,15 @@ func (db *SQLDatabase) SaveUser(user *User, country string) error {
 	return nil
 }
 
-func (db *SQLDatabase) SubmitScore(user_guid string, score float64) error {
+func (db *SQLDatabase) SubmitScore(user_guid string, score float64, secs int64) error {
+
 	Sqlmutex.Lock()
-	now := time.Now()
-	secs := now.Unix()
 	userSql := "UPDATE users SET Points = Points + $2, Timestamp = $3 WHERE User_Id = $1"
 	_, err := db.SqlClient.Exec(userSql, user_guid, score, secs)
 	if err != nil {
 		log.Println(" SubmitScore Failed to execute query: ", err)
-		Sqlmutex.Unlock()
 		db.SyncNeed = true
+		Sqlmutex.Unlock()
 		return err
 	}
 	Sqlmutex.Unlock()

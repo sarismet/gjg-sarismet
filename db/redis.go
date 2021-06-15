@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/go-redis/redis"
 )
@@ -64,17 +64,22 @@ func (db *RedisDatabase) GetLeaderboard(countryName string, sync bool) ([]User, 
 		tempUsers, err := db.GetUser(member.Member.(string), true)
 		tempUsers.User_Id = ""
 		tempUsers.Timestamp = 0
-		if err == nil {
-			if countryName != "" {
-				if tempUsers.Country == countryName {
+		if member.Member.(string) != "" {
+			if err == nil {
+				if countryName != "" {
+					if tempUsers.Country == countryName {
+						users[index] = tempUsers
+						index++
+					}
+				} else {
 					users[index] = tempUsers
 					index++
 				}
-			} else {
-				users[index] = tempUsers
-				index++
 			}
+		} else {
+			fmt.Println("member is empty I think there is an error in the system")
 		}
+
 	}
 	Redismutex.Unlock()
 	return users, arraysize
@@ -103,10 +108,8 @@ func (db *RedisDatabase) SaveUser(user *User) (int64, error) {
 		return 0, err
 	}
 	// TO HERE REFERENCE: https://blog.logrocket.com/how-to-use-redis-as-a-database-with-go-redis/
-	now := time.Now()
-	secs := now.Unix()
+	secs := user.Timestamp
 	user.Rank = int(rank.Val())
-	user.Timestamp = secs
 	userInRedis := db.Client.Get(Ctx, user.User_Id).Val()
 	is_user_present := false
 	if userInRedis != "" {
