@@ -300,7 +300,7 @@ Response
   Golang has goroutine which makes the program faster and it was the one of the reason why I choose golang. 
 ```
 
-**Database:** Postgresql, Redis
+**Database:** [Postgresql](https://www.postgresql.org/), [Redis](https://redis.io/)
 ```
   I felt that we need to design a caching mechanism to make the process faster. When we post a request
   we first store it in Redis and then store it in Postgresql by asynchronous operaion using a goroutine. That way, when we want to get an user we first look at the Redis and if we do not found then we look at Postgresql which is much slower operation. However, if we want to get huge number of users like 50.000 then we first searcg them in Postgresql since sql operation with huge number of rows is faster.
