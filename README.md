@@ -75,10 +75,12 @@ I left a Dockerfile for this project.
 - We also used goroutine to make some asynchronous operation so these operation can access and change the same user information. In order to prohibit that condition we had to use lock as well.
 
 ## Important Rules
-- Ranks star with 0
+- Ranks star with 0.
+- The initial points of a user has 0 points.
 
+## API Documentation
 
-#### Get user
+#### -Get user
 
 Request  
 
@@ -292,7 +294,7 @@ Response
 
   
 ## Tech Stack
-**Server:** Golang, Echo
+**Server:** [Golang](https://golang.org/), [Echo](https://github.com/labstack/echo)
 ```
   I had made a research and found that the best framework which is good at scalability is Echo for Golang so I decided to use Echo even though Gin is much more popular and Fiber is much more faster then Echo.
   Golang has goroutine which makes the program faster and it was the one of the reason why I choose golang. 
