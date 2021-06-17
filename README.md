@@ -282,14 +282,13 @@ Response
 ## How we can improve it
 
 ```
-- When the program is started we try to connect both redis and sql.
-  We can create connection pools for both databases to use a connect from the pool
-  However, it is not implemented yet.
+- When the program is started we try to connect both redis and sql with one connection each.
+  We can create connection pools for both databases. However, it is not implemented yet.
 ```
 ```
 - If some users have the same points then the order in postgres database and redis can be different.
   We order the same users in postgres database by considering their record date however in Redis
-  there is no rule to order users with the same point. We can define a rule for them in Redis.
+  there is no rule to order users with the same point. We could have defined a rule for them in Redis.
 ```
 
   
