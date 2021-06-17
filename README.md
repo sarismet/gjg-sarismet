@@ -62,17 +62,17 @@ or If you do not want to trigger then type
 ```
 
 ## Notes
-- When we want to run a operation such as creating multiple a user, we always do it in Redis if the the number of the user we want to create is not huge. After the creating users in Redis is done we create a goroutine to handle the same operation using postgresql. However if the Redis fails then we make the program do the operation in postgresql. This approach is applied in every endpoints.
+- When a user wants to run a operation such as creating multiple users, I always do it in Redis if the the number of the user is not huge. After the creating users in Redis is done the program creates a goroutine to handle the same operation using postgresql. However if the Redis fails then the program does the same operation in postgresql. This approach is applied in every endpoints.
 - I implemented a synchronization mechanism so that if there is an error while saving or updating a user in Redis or Sql. You need to spesify whether or not you want to run the synchronization mechanism as you run the program. If it is triggered then the program create a goroutine which checks if there is sync needed. If the program face an issue in a Redis operation, then the mechanism will try to copy the information of the user from postgresql to Redis. If there is an error faced as saving or updating in sql then the synchronization mechanism copy the information from Redis to Sql. If we have the same user information in both Sql and Redis and the program always determine the correct user info considering the timestamp. The bigger timestamp would have the priority.
-- Using Postgresql rather than Redis has some pros such as selecting multiple row in Postgresql is much faster than Redis so if the size of the user in the system is bigger than 1000 then we search the user in Posgresql. I tested this with 100.000 users in my localhost and getting the user from Resis lasts 6min 15 sec but getting them from postgresql just last 1min 12sec. For creating multiple user and geting the leaderboard with more than 1000 user operations we must use postgresql instead of Redis. However if we just want to run one operation such as geting user or creating user then using redis is much more faster.
+- Using Postgresql rather than Redis has some pros such as selecting multiple row in Postgresql which is much faster than Redis so if the size of the user in the system is bigger than 1000 then the program searches the user in Posgresql. I tested this with 100.000 users in my localhost and getting the user from Resis lasts 6min 15 sec but getting them from postgresql just last 1min 12sec. For creating multiple user and geting the leaderboard with more than 1000 user operations we must use postgresql instead of Redis. However if we just want to run one operation such as geting user or creating user then using redis is much more faster.
+- If you want to submit a score for a user who is not really exists then the program does not update the scores or create new user but in the response code it is shown as if the users with the wrong user ids are updated. I used the same model that I created as reading the request to return respond. I did this since creating and other model can slow down the program. 
+- The user ids have to be unique.
 - If you have remote database host or you can run redis, postgresql and our project in docker compose then
 I left a Dockerfile for this project.
-- If you want to submit a score for a user who is not really exists then the program does not update the scores or create new user but in the response code it is shown as the users with the wrong user ids are updated. I used the same mode that I created as reading the request as returning respond. I did this since mreating and other model can slow down the program. 
-- The user ids are unique.
 
 ## Locks
-- Since we synchronize our databases we had to used locks. Golang as its mutex and when we adding, updating or geting from a database we lock the database first so that when the synchronization runs it does not get the wrong version of the database.
-- We also used goroutine to make some asynchronous operation so these operation can access and change the same user information. In order to prohibit that condition we had to use lock as well.
+- Since we synchronize our databases I had to used locks. Golang has its own mutex and when we are adding, updating or geting from a database the program firt locks the database so that when the synchronization runs it does not get the wrong version of the database.
+- I also used goroutine to make some asynchronous operation so these operation can access and change the same user information. In order to overcome this problem I had to use lock as well.
 
 ## Important Rules
 - Ranks star with 0.
@@ -282,7 +282,7 @@ Response
 ## How we can improve it
 
 ```
-- When the program is started we try to connect both redis and sql with one connection each.
+- When the program is started it tries to connect both redis and sql with one connection each.
   We can create connection pools for both databases. However, it is not implemented yet.
 ```
 ```
@@ -301,8 +301,8 @@ Response
 
 **Database:** [Postgresql](https://www.postgresql.org/), [Redis](https://redis.io/)
 ```
-  I felt that we need to design a caching mechanism to make the process faster. When we post a request
-  we first store it in Redis and then store it in Postgresql by asynchronous operaion using a goroutine. That way, when we want to get an user we first look at the Redis and if we do not found then we look at Postgresql which is much slower operation. However, if we want to get huge number of users like 50.000 then we first searcg them in Postgresql since sql operation with huge number of rows is faster.
+  I felt that I need to design a caching mechanism to make the process faster. When I post a request,
+  I first store it in Redis and then store it in Postgresql by asynchronous operaion using a goroutine. That way, when I want to get an user I first look at the Redis and if I do not found then I look at Postgresql which is much slower operation. However, if I want to get huge number of users like 50.000 then I first searcH them in Postgresql since sql operation with huge number of rows is faster.
 
   Postgresql uses more than one GPU core to execute the operation so it can be more attractive to run complext queries.
   ```
