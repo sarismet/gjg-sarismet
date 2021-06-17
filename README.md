@@ -40,7 +40,8 @@ After that run these commands.
   docker exec -it [container-id] bash
   psql -h localhost -p 5432 -U postgres -W
 ```
-If you want to see the container id, you can basically run docker ps to get the running containers.  
+If you want to see the container id, you can basically run docker ps to get the running containers. When you connect to your database you can see postgres default database by typing \l.  
+
 To install and run redis in your machine, type the command in your terminal.  
 It install the redis image if you do not have and run it in port 6379
 ```
@@ -68,6 +69,10 @@ or If you do not want to trigger then type
 I left a Dockerfile for this project.
 - If you want to submit a score for a user who is not really exists then the program does not update the scores or create new user but in the response code it is shown as the users with the wrong user ids are updated. I used the same mode that I created as reading the request as returning respond. I did this since mreating and other model can slow down the program. 
 - The user ids are unique.
+
+## Locks
+- Since we synchronize our databases we had to used locks. Golang as its mutex and when we adding, updating or geting from a database we lock the database first so that when the synchronization runs it does not get the wrong version of the database.
+- We also used goroutine to make some asynchronous operation so these operation can access and change the same user information. In order to prohibit that condition we had to use lock as well.
 
 ## Important Rules
 - Ranks star with 0
